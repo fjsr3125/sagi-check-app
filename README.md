@@ -2,12 +2,21 @@
 
 Unari Sagi Operator / 詐欺チェック用Macアプリの配布専用repo。
 
+このrepoは公開運用。秘密設定、session、capture、Instagram APK/APKM/XAPK、Frida tools本体はgitに入れない。
+
 ## 方針
 
 - `unari` 本体repoから、詐欺チェックアプリ配布に必要なコードだけを分離する
 - CIはGitHub Actionsで回す
 - member-ready releaseは手動workflowで作る
 - 実session、capture、ログ、Instagram APK/APKM/XAPK、Frida tools、`members.json`、Sheets連携設定はgitに入れない
+
+## 公開配布URL
+
+- repo: https://github.com/fjsr3125/sagi-check-app
+- 最新Release: https://github.com/fjsr3125/sagi-check-app/releases/latest
+- 最新DMG: https://github.com/fjsr3125/sagi-check-app/releases/latest/download/UnariSagiOperator-2026.07.03.1.dmg
+- 更新確認: https://github.com/fjsr3125/sagi-check-app/releases/latest/download/latest.json
 
 ## ローカル確認
 
@@ -52,5 +61,11 @@ release workflowには次が必要。
 - `SAGI_OPERATOR_INSTAGRAM_PACKAGE_URL`: Instagram APK/APKM/XAPKを取得できるURL
 - `SAGI_OPERATOR_CAPTURE_TOOLS_URL`: `tools/` に展開するtar.gzを取得できるURL
 
-Private GitHub Releasesだけに置くと、メンバーMacが認証なしで取得できない場合がある。
-非エンジニア配布では、Cloudflare R2などの固定URLにDMG/ZIP/latest.jsonを置く方が安全。
+`SAGI_MEMBERS_JSON_B64` と `SAGI_SHEETS_BRIDGE_JSON_B64` は設定済み。
+
+未設定:
+
+- `SAGI_OPERATOR_INSTAGRAM_PACKAGE_URL`
+- `SAGI_OPERATOR_CAPTURE_TOOLS_URL`
+
+この2つを設定すると、GitHub Actionsの `Build member release` から次回版を作れる。
