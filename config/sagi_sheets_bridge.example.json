@@ -1,0 +1,5 @@
+{
+  "backend": "apps-script",
+  "web_app_url": "https://script.google.com/macros/s/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/exec",
+  "token": "replace-with-random-internal-token"
+}

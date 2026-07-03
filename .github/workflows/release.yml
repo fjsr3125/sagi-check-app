@@ -1,0 +1,101 @@
+name: Build member release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, e.g. 2026.07.03.1"
+        required: true
+      base_url:
+        description: "Public base URL where DMG/ZIP/latest.json will be hosted"
+        required: false
+        default: ""
+      release_notes:
+        description: "Short release notes"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    env:
+      VERSION: ${{ inputs.version }}
+      BASE_URL: ${{ inputs.base_url }}
+      RELEASE_NOTES: ${{ inputs.release_notes }}
+      GH_TOKEN: ${{ github.token }}
+      SAGI_MEMBERS_JSON_B64: ${{ secrets.SAGI_MEMBERS_JSON_B64 }}
+      SAGI_SHEETS_BRIDGE_JSON_B64: ${{ secrets.SAGI_SHEETS_BRIDGE_JSON_B64 }}
+      SAGI_OPERATOR_INSTAGRAM_PACKAGE_URL: ${{ secrets.SAGI_OPERATOR_INSTAGRAM_PACKAGE_URL }}
+      SAGI_OPERATOR_CAPTURE_TOOLS_URL: ${{ secrets.SAGI_OPERATOR_CAPTURE_TOOLS_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install smoke-test dependencies
+        run: python3 -m pip install -r requirements.txt
+
+      - name: Prepare private release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SAGI_MEMBERS_JSON_B64"
+          test -n "$SAGI_SHEETS_BRIDGE_JSON_B64"
+          test -n "$SAGI_OPERATOR_INSTAGRAM_PACKAGE_URL"
+          test -n "$SAGI_OPERATOR_CAPTURE_TOOLS_URL"
+          effective_base_url="${BASE_URL:-https://github.com/${GITHUB_REPOSITORY}/releases/latest/download}"
+          export EFFECTIVE_BASE_URL="$effective_base_url"
+          echo "EFFECTIVE_BASE_URL=$effective_base_url" >> "$GITHUB_ENV"
+          mkdir -p config apks tools
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          Path("config/members.json").write_bytes(base64.b64decode(os.environ["SAGI_MEMBERS_JSON_B64"]))
+          Path("config/sagi_sheets_bridge.json").write_bytes(base64.b64decode(os.environ["SAGI_SHEETS_BRIDGE_JSON_B64"]))
+          PY
+          curl -fL "$SAGI_OPERATOR_INSTAGRAM_PACKAGE_URL" -o apks/Instagram.xapk
+          curl -fL "$SAGI_OPERATOR_CAPTURE_TOOLS_URL" -o /tmp/sagi-capture-tools.tar.gz
+          tar -xzf /tmp/sagi-capture-tools.tar.gz -C tools
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          base_url = os.environ["EFFECTIVE_BASE_URL"].rstrip("/")
+          Path("config/sagi_operator_update.json").write_text(
+              json.dumps(
+                  {
+                      "enabled": True,
+                      "latest_url": f"{base_url}/latest.json",
+                      "check_timeout_seconds": 8,
+                  },
+                  ensure_ascii=False,
+                  indent=2,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Build app release package
+        run: |
+          args=(--version "$VERSION" --release-notes "$RELEASE_NOTES")
+          args+=(--base-url "$EFFECTIVE_BASE_URL")
+          python3 scripts/package_sagi_operator_release.py "${args[@]}"
+
+      - name: Release smoke check
+        run: python3 scripts/sagi_operator_release_check.py
+
+      - name: Upload GitHub Release artifacts
+        run: |
+          gh release create "sagi-operator-$VERSION" \
+            dist/sagi_operator_release/* \
+            --title "Sagi Operator $VERSION" \
+            --notes "$RELEASE_NOTES"

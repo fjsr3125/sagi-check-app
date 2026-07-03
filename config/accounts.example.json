@@ -1,0 +1,34 @@
+{
+    "_comment": "本番ファイル `config/accounts.json` のテンプレート。このファイルをコピーして値を埋めること。実ファイルは .gitignore で除外されている。パスワード・proxy 認証情報を含むので絶対にコミットしない。",
+    "password": "REPLACE_WITH_SHARED_INSTAGRAM_PASSWORD",
+    "batch_per_account": 50,
+    "sessions_dir": "sessions",
+    "accounts": [
+        {
+            "username": "your_ig_username",
+            "proxy": "http://USER:PASS@proxy.example.com:5000",
+            "device": {
+                "manufacturer": "Google/google",
+                "model": "sdk_gphone64_arm64",
+                "device": "emu64a",
+                "cpu": "ranchu",
+                "android_version": 33,
+                "android_release": "13",
+                "dpi": "420dpi",
+                "resolution": "1080x2400",
+                "app_version": "425.0.0.47.61",
+                "version_code": "938256486",
+                "bloks_versioning_id": "REPLACE_WITH_BLOKS_VERSIONING_ID"
+            },
+            "uuids": {
+                "phone_id": "00000000-0000-0000-0000-000000000000",
+                "uuid": "00000000-0000-0000-0000-000000000000",
+                "android_device_id": "android-0000000000000000",
+                "client_session_id": "00000000-0000-0000-0000-000000000000",
+                "advertising_id": "00000000-0000-0000-0000-000000000000",
+                "request_id": "00000000-0000-0000-0000-000000000000",
+                "tray_session_id": "00000000-0000-0000-0000-000000000000"
+            }
+        }
+    ]
+}

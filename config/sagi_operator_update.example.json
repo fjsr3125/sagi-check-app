@@ -1,0 +1,5 @@
+{
+  "enabled": false,
+  "latest_url": "https://example.com/unari-sagi-operator/latest.json",
+  "check_timeout_seconds": 8
+}

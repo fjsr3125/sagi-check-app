@@ -1,0 +1,1239 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.request
+import zipfile
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parent.parent
+APP_DIR = ROOT / "dist" / "Unari Sagi Operator.app"
+APP_RESOURCES = APP_DIR / "Contents" / "Resources"
+APP_ROOT = APP_DIR / "Contents" / "Resources" / "unari-src"
+APP_EXECUTABLE = APP_DIR / "Contents" / "MacOS" / "Unari Sagi Operator"
+BUNDLED_PYTHON = APP_DIR / "Contents" / "Resources" / "python" / "bin" / "python3"
+INSTAGRAM_PACKAGE_SUFFIXES = {".apk", ".apkm", ".xapk"}
+TOOL_FILES = [
+    "android-proxy-config.js",
+    "android-unpinning-fallback.js",
+    "android-unpinning-httptoolkit.js",
+    "c8750f0d.0",
+    "config.js",
+    "frida-multiple-unpinning.js",
+    "frida-server-17.9.1-android-arm64",
+]
+SECRET_PATTERNS = [
+    "accounts.json",
+    "hubspot_members.json",
+    "capture_pool.json",
+    "soax.json",
+    ".env",
+]
+LOCAL_PATH_PATTERNS = [
+    "/Users/fujimakisora",
+    "fujimakisora",
+]
+
+
+def run(
+    cmd: list[str],
+    *,
+    cwd: Path = ROOT,
+    timeout: int = 120,
+    env: dict[str, str] | None = None,
+) -> dict:
+    proc = subprocess.run(
+        cmd,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=env,
+    )
+    return {
+        "cmd": " ".join(cmd),
+        "ok": proc.returncode == 0,
+        "returncode": proc.returncode,
+        "stdout": (proc.stdout or "").strip(),
+        "stderr": (proc.stderr or "").strip(),
+    }
+
+
+def step(name: str, result: dict, results: list[dict], *, quiet: bool = False) -> None:
+    result["name"] = name
+    results.append(result)
+    if quiet:
+        return
+    mark = "OK" if result["ok"] else "NG"
+    print(f"[{mark}] {name}")
+    if not result["ok"]:
+        tail = "\n".join([result.get("stdout", ""), result.get("stderr", "")]).strip()
+        if tail:
+            print(tail[-1200:])
+
+
+def check_bundle_secrets() -> dict:
+    if not APP_ROOT.exists():
+        return {"ok": False, "error": f"bundle source not found: {APP_ROOT}"}
+    found = []
+    for path in APP_ROOT.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.name in SECRET_PATTERNS or path.name.endswith(".env"):
+            found.append(str(path.relative_to(APP_ROOT)))
+        if ".bak" in path.name:
+            found.append(str(path.relative_to(APP_ROOT)))
+        if path.parts and "sessions" in path.parts:
+            found.append(str(path.relative_to(APP_ROOT)))
+        if path.parts and "captures" in path.parts:
+            found.append(str(path.relative_to(APP_ROOT)))
+    return {"ok": not found, "found": found}
+
+
+def check_bundle_local_paths() -> dict:
+    if not APP_ROOT.exists():
+        return {"ok": False, "error": f"bundle source not found: {APP_ROOT}"}
+    found = []
+    for path in APP_ROOT.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() in INSTAGRAM_PACKAGE_SUFFIXES:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        matches = [pattern for pattern in LOCAL_PATH_PATTERNS if pattern in text]
+        if matches:
+            found.append({"path": str(path.relative_to(APP_ROOT)), "matches": matches})
+    return {"ok": not found, "found": found}
+
+
+def check_bundle_python_caches() -> dict:
+    if not APP_RESOURCES.exists():
+        return {"ok": False, "error": f"app resources not found: {APP_RESOURCES}"}
+    found = []
+    for path in APP_RESOURCES.rglob("*"):
+        if path.name == "__pycache__" or path.suffix == ".pyc":
+            found.append(str(path.relative_to(APP_RESOURCES)))
+            if len(found) >= 50:
+                break
+    return {"ok": not found, "found": found}
+
+
+def check_app_signature() -> dict:
+    if not APP_DIR.exists():
+        return {"ok": False, "error": f"app not found: {APP_DIR}"}
+    codesign = shutil.which("codesign")
+    if codesign is None:
+        return {"ok": False, "error": "codesign command not found"}
+    return run(
+        [codesign, "--verify", "--deep", "--strict", "--verbose=4", str(APP_DIR)],
+        timeout=60,
+    )
+
+
+def check_bundled_python() -> dict:
+    if not BUNDLED_PYTHON.exists():
+        return {"ok": False, "error": f"bundled python not found: {BUNDLED_PYTHON}"}
+    with tempfile.TemporaryDirectory(prefix="unari_operator_pycache_") as td:
+        env = os.environ.copy()
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        env["PYTHONPYCACHEPREFIX"] = td
+        result = run([str(BUNDLED_PYTHON), "-V"], timeout=30, env=env)
+        output = " ".join([result.get("stdout", ""), result.get("stderr", "")]).strip()
+        return {"ok": result["ok"] and "Python 3.14" in output, "output": output, "result": result}
+
+
+def check_sheets_bridge_bundle() -> dict:
+    required = [
+        APP_ROOT / "scripts" / "sheets_bridge.py",
+        APP_ROOT / "scripts" / "sheets_auth.py",
+        APP_ROOT / "scripts" / "sagi_sheets_webapp.gs",
+        APP_ROOT / "config" / "sagi_sheets_bridge.json",
+        APP_ROOT / "config" / "sagi_sheets_bridge.example.json",
+    ]
+    missing = [str(path.relative_to(APP_ROOT)) for path in required if not path.exists()]
+    stale = []
+    if (APP_ROOT / "tools" / "gog").exists():
+        stale.append("tools/gog")
+    config_ok = False
+    config_summary: dict[str, Any] = {}
+    config_path = APP_ROOT / "config" / "sagi_sheets_bridge.json"
+    if config_path.exists():
+        try:
+            data = json.loads(config_path.read_text(encoding="utf-8"))
+            config_ok = (
+                data.get("backend") == "apps-script"
+                and bool(data.get("web_app_url"))
+                and bool(data.get("token"))
+            )
+            config_summary = {
+                "backend": data.get("backend"),
+                "web_app_url_set": bool(data.get("web_app_url")),
+                "token_set": bool(data.get("token")),
+            }
+        except (OSError, json.JSONDecodeError) as e:
+            config_summary = {"error": str(e)}
+    return {
+        "ok": not missing and not stale and config_ok,
+        "missing": missing,
+        "stale": stale,
+        "config": config_summary,
+    }
+
+
+def check_instagram_package_bundle() -> dict:
+    apk_dir = APP_ROOT / "apks"
+    if not apk_dir.exists():
+        return {"ok": False, "missing": "unari-src/apks directory is missing"}
+    packages = [
+        path
+        for path in apk_dir.iterdir()
+        if path.is_file()
+        and path.suffix.lower() in INSTAGRAM_PACKAGE_SUFFIXES
+        and "instagram" in path.name.lower()
+    ]
+    if not packages:
+        return {"ok": False, "missing": "Instagram APK/APKM/XAPK is not bundled"}
+    return {
+        "ok": True,
+        "packages": [
+            {"name": path.name, "size_mb": round(path.stat().st_size / 1024 / 1024, 1)}
+            for path in sorted(packages)
+        ],
+    }
+
+
+def check_capture_tools_bundle() -> dict:
+    source_dir = ROOT / "tools"
+    bundled_dir = APP_ROOT / "tools"
+    source_missing = [name for name in TOOL_FILES if not (source_dir / name).exists()]
+    if source_missing:
+        return {"ok": True, "skipped": "capture tools are not present in repo", "missing_in_repo": source_missing}
+    bundled_missing = [name for name in TOOL_FILES if not (bundled_dir / name).exists()]
+    return {"ok": not bundled_missing, "missing": bundled_missing}
+
+
+def check_members_config_bundle() -> dict:
+    source = ROOT / "config" / "members.json"
+    bundled = APP_ROOT / "config" / "members.json"
+    if not source.exists():
+        return {"ok": False, "missing": "config/members.json is missing in repo"}
+    if not bundled.exists():
+        return {"ok": False, "missing": "unari-src/config/members.json is not bundled"}
+    source_size = source.stat().st_size
+    bundled_size = bundled.stat().st_size
+    return {
+        "ok": source_size > 0 and source_size == bundled_size,
+        "source_size": source_size,
+        "bundled_size": bundled_size,
+    }
+
+
+def check_update_bundle() -> dict:
+    source = ROOT / "config" / "sagi_operator_update.json"
+    bundled = APP_ROOT / "config" / "sagi_operator_update.json"
+    version = APP_ROOT / "config" / "sagi_operator_version.json"
+    missing = []
+    if source.exists() and not bundled.exists():
+        missing.append("unari-src/config/sagi_operator_update.json")
+    if not version.exists():
+        missing.append("unari-src/config/sagi_operator_version.json")
+    details: dict[str, Any] = {}
+    if bundled.exists():
+        try:
+            data = json.loads(bundled.read_text(encoding="utf-8"))
+            details = {
+                "enabled": bool(data.get("enabled")),
+                "latest_url_set": bool(data.get("latest_url")),
+            }
+        except (OSError, json.JSONDecodeError) as e:
+            details = {"error": str(e)}
+            missing.append("update config is not valid json")
+    return {"ok": not missing, "missing": missing, "update_config": details}
+
+
+def check_launcher_script() -> dict:
+    if not APP_EXECUTABLE.exists():
+        return {"ok": False, "error": f"app executable not found: {APP_EXECUTABLE}"}
+    syntax = run(["zsh", "-n", str(APP_EXECUTABLE)], timeout=30)
+    text = APP_EXECUTABLE.read_text(encoding="utf-8")
+    required = [
+        'osascript - "$msg" "$BOOT_LOG"',
+        "on run argv",
+        "display dialog messageText & linefeed",
+        "display dialog \"アプリ画面の起動に失敗しました。\" & linefeed",
+        "required=[\"flask\",\"requests\",\"instagrapi\",\"googleapiclient\",\"frida\",\"mitmproxy\"]",
+    ]
+    missing = [item for item in required if item not in text]
+    if '--exclude "members.json"' in text:
+        missing.append("members.json must be copied into member APP_ROOT")
+    return {"ok": syntax["ok"] and not missing, "syntax": syntax, "missing": missing}
+
+
+def check_archive_payloads() -> dict:
+    zip_path = ROOT / "dist" / "Unari Sagi Operator.zip"
+    dmg_path = ROOT / "dist" / "Unari Sagi Operator.dmg"
+    checks = []
+    if zip_path.exists():
+        checks.append(run(["unzip", "-t", str(zip_path)], timeout=180))
+    if dmg_path.exists():
+        checks.append(run(["hdiutil", "verify", str(dmg_path)], timeout=180))
+    if not checks:
+        return {"ok": True, "checked": []}
+    return {
+        "ok": all(item.get("ok") for item in checks),
+        "checked": [
+            {
+                "cmd": item.get("cmd"),
+                "ok": item.get("ok"),
+                "stdout_tail": item.get("stdout", "")[-500:],
+                "stderr_tail": item.get("stderr", "")[-500:],
+            }
+            for item in checks
+        ],
+    }
+
+
+ARCHIVE_TEXT_CHECKS = {
+    "scripts/sagi_request_processor.py": [
+        "from sheets_bridge import get_metadata, get_values, update_values",
+        "def sheets_get",
+        "def sheets_update",
+    ],
+    "scripts/sheets_bridge.py": [
+        "def backend_kind",
+        "apps-script",
+        "google-api",
+        "SAGI_SHEETS_WEBAPP_URL",
+    ],
+    "scripts/sagi_sheets_webapp.gs": [
+        "function doPost",
+        "SpreadsheetApp.openById",
+        "SAGI_OPERATOR_TOKEN",
+    ],
+    "ops_dashboard/setup_jobs.py": [
+        "Google Sheets接続設定",
+        "google-auth",
+        "sheets_bridge",
+        "sheets_auth",
+        "Google API認証ファイルがありません",
+    ],
+    "scripts/ensure_capture_infra.sh": [
+        "probe_mac_instagram_dns",
+        "Mac DNS: Instagram接続先を解決できます",
+    ],
+    "scripts/shin_capture_auto.py": [
+        "wait_for_frida_hooks",
+        "wait_for_manual_login_completion",
+        "manual_login_mode",
+        "--manual-login",
+        "manual_login_required",
+        "--continue-on-error",
+        "transport diagnosis",
+        '"--no-proxy"',
+        '"--no-verify"',
+    ],
+    "scripts/import_real_session.py": [
+        "accounts.json が無いため",
+        "DEFAULT_CONFIG",
+        "inserted (proxy/passwordなし)",
+    ],
+    "scripts/verify_captured_session.py": [
+        "DEFAULT_CONFIG",
+        "_accounts_from_sessions",
+    ],
+    "scripts/api_warning_check.py": [
+        "DEFAULT_CONFIG",
+        "_accounts_from_strong_sessions",
+    ],
+    "ops_dashboard/capture_jobs.py": [
+        "--manual-login",
+        "manual_login_timeout",
+        "login_input_error",
+        "メール確認/2FA",
+        "network_dns_or_502",
+        "tls_or_pinning",
+        "DNS/502",
+        "Google Sheetsの認証",
+        "SheetsBridgeError",
+        "NEEDS_SUPPLEMENT",
+        "続きから再開",
+        "LoginRequired/Challenge",
+    ],
+    "ops_dashboard/check_jobs.py": [
+        "start_sheet_check_job",
+        "詐欺チェック: ①取込と件数確認",
+        "強session必要本数チェック",
+        "NEEDS_SUPPLEMENT",
+        "latest_results",
+        "チェック済み",
+        "--dry-run",
+        "--no-proxy",
+        "--resume",
+    ],
+    "ops_dashboard/templates/index.html": [
+        "/api/update/status",
+        "新しい版があります",
+        "アプリは最新版です",
+        "① まず件数を確認（本番はまだ走りません）",
+        "② 本番チェックを実行",
+        "途中から再開（追加session後）",
+        "直近CSV",
+        "追加session",
+        "詳細設定 / CSVで実行する場合",
+        "Google Sheets接続設定",
+        "書き戻さずに件数だけ確認",
+        "表示ログをコピー",
+        "詐欺チェックの進行状況",
+        "sagiSheetsBridgeHint",
+        "setSagiTabByOffset",
+        "藤巻確認用ログを見る",
+    ],
+    "ops_dashboard/update_check.py": [
+        "collect_update_status",
+        "sagi_operator_update.json",
+        "sagi_operator_version.json",
+        "latest.json",
+    ],
+    "ops_dashboard/app.py": [
+        "api_update_status",
+        "/api/update/status",
+    ],
+    "Contents/MacOS/Unari Sagi Operator": [
+        'osascript - "$msg" "$BOOT_LOG"',
+        "on run argv",
+    ],
+}
+
+
+def _check_archive_text(root: Path) -> list[dict]:
+    missing: list[dict] = []
+    for suffix, expected in ARCHIVE_TEXT_CHECKS.items():
+        matches = [path for path in root.rglob("*") if path.is_file() and str(path).endswith(suffix)]
+        if not matches:
+            missing.append({"path": suffix, "missing": ["file not found"]})
+            continue
+        text = matches[0].read_text(encoding="utf-8", errors="ignore")
+        absent = [item for item in expected if item not in text]
+        if absent:
+            missing.append({"path": suffix, "missing": absent})
+    return missing
+
+
+def check_archive_contents() -> dict:
+    zip_path = ROOT / "dist" / "Unari Sagi Operator.zip"
+    dmg_path = ROOT / "dist" / "Unari Sagi Operator.dmg"
+    issues: list[dict] = []
+    if zip_path.exists():
+        try:
+            with tempfile.TemporaryDirectory(prefix="unari_operator_zip_check_") as td:
+                with zipfile.ZipFile(zip_path) as zf:
+                    zf.extractall(td)
+                issues.extend({"archive": "zip", **item} for item in _check_archive_text(Path(td)))
+        except Exception as e:
+            issues.append({"archive": "zip", "error": f"{type(e).__name__}: {e}"})
+    if dmg_path.exists():
+        attach = run(["hdiutil", "attach", "-nobrowse", "-readonly", str(dmg_path)], timeout=120)
+        if not attach["ok"]:
+            issues.append({"archive": "dmg", "error": "attach failed", "detail": attach})
+        else:
+            mount = None
+            try:
+                for line in attach.get("stdout", "").splitlines():
+                    if "/Volumes/" in line:
+                        mount = line[line.index("/Volumes/") :].strip()
+                        break
+                if not mount:
+                    issues.append({"archive": "dmg", "error": "mounted volume path not found"})
+                else:
+                    issues.extend({"archive": "dmg", **item} for item in _check_archive_text(Path(mount)))
+            finally:
+                if mount:
+                    subprocess.run(["hdiutil", "detach", mount], capture_output=True, text=True, timeout=60)
+    return {"ok": not issues, "issues": issues}
+
+
+def check_dmg_app_signature() -> dict:
+    dmg_path = ROOT / "dist" / "Unari Sagi Operator.dmg"
+    if not dmg_path.exists():
+        return {"ok": True, "skipped": "dmg not found"}
+    attach = run(["hdiutil", "attach", "-nobrowse", "-readonly", str(dmg_path)], timeout=120)
+    if not attach["ok"]:
+        return attach
+    mount = None
+    try:
+        for line in attach.get("stdout", "").splitlines():
+            if "/Volumes/" in line:
+                mount = line[line.index("/Volumes/") :].strip()
+                break
+        if not mount:
+            return {"ok": False, "error": "mounted volume path not found", "attach": attach}
+        mounted_app = Path(mount) / "Unari Sagi Operator.app"
+        codesign = shutil.which("codesign")
+        if codesign is None:
+            return {"ok": False, "error": "codesign command not found"}
+        return run(
+            [codesign, "--verify", "--deep", "--strict", "--verbose=4", str(mounted_app)],
+            timeout=60,
+        )
+    finally:
+        if mount:
+            subprocess.run(["hdiutil", "detach", mount], capture_output=True, text=True, timeout=60)
+
+
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
+def _kill_port(port: int) -> None:
+    proc = subprocess.run(
+        ["lsof", f"-tiTCP:{port}", "-sTCP:LISTEN"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    for line in proc.stdout.splitlines():
+        try:
+            os.kill(int(line.strip()), signal.SIGTERM)
+        except Exception:
+            pass
+
+
+def _read_json(url: str, timeout: int = 10) -> dict:
+    with urllib.request.urlopen(url, timeout=timeout) as res:
+        return json.loads(res.read().decode("utf-8"))
+
+
+def check_member_first_launch() -> dict:
+    if not APP_EXECUTABLE.exists():
+        return {"ok": False, "error": f"app executable not found: {APP_EXECUTABLE}"}
+    port = _free_port()
+    with tempfile.TemporaryDirectory(prefix="unari_operator_member_home_") as td:
+        home = Path(td)
+        env = os.environ.copy()
+        env.update(
+            {
+                "HOME": str(home),
+                "OPS_PORT": str(port),
+                "UNARI_OPERATOR_NO_UI": "1",
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            }
+        )
+        try:
+            proc = subprocess.run(
+                [str(APP_EXECUTABLE)],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=900,
+            )
+            if proc.returncode != 0:
+                return {
+                    "ok": False,
+                    "returncode": proc.returncode,
+                    "stdout": proc.stdout[-2000:],
+                    "stderr": proc.stderr[-2000:],
+                }
+            deadline = time.time() + 20
+            data = None
+            while time.time() < deadline:
+                try:
+                    data = _read_json(f"http://localhost:{port}/api/setup/status", timeout=5)
+                    break
+                except Exception:
+                    time.sleep(1)
+            app_root = home / "Library" / "Application Support" / "UnariSagiOperator" / "unari"
+            logs_dir = home / "Library" / "Logs" / "UnariSagiOperator"
+            missing = []
+            for required in [
+                app_root / "venv" / "bin" / "python",
+                logs_dir,
+            ]:
+                if not required.exists():
+                    missing.append(str(required))
+            launcher_logs = sorted(logs_dir.glob("launcher_*.log")) if logs_dir.exists() else []
+            app_logs = sorted(logs_dir.glob("app_*.log")) if logs_dir.exists() else []
+            if not launcher_logs:
+                missing.append("launcher log")
+            if not app_logs:
+                missing.append("app log")
+            checks = (data or {}).get("checks", {})
+            if "python3" in checks:
+                missing.append("setup status still exposes python3 requirement")
+            if not checks.get("python_runtime", {}).get("ok"):
+                missing.append("python_runtime status is not ok")
+            return {
+                "ok": data is not None and not missing,
+                "port": port,
+                "setup_status_ok": bool(data),
+                "root": data.get("root") if data else None,
+                "missing": missing,
+                "stdout_tail": proc.stdout[-500:],
+            }
+        finally:
+            _kill_port(port)
+
+
+def check_member_broken_venv_repair() -> dict:
+    if not APP_EXECUTABLE.exists():
+        return {"ok": False, "error": f"app executable not found: {APP_EXECUTABLE}"}
+    if not BUNDLED_PYTHON.exists():
+        return {"ok": False, "error": f"bundled python not found: {BUNDLED_PYTHON}"}
+    port = _free_port()
+    with tempfile.TemporaryDirectory(prefix="unari_operator_broken_venv_home_") as td:
+        home = Path(td)
+        app_root = home / "Library" / "Application Support" / "UnariSagiOperator" / "unari"
+        app_root.mkdir(parents=True, exist_ok=True)
+        env = os.environ.copy()
+        env.update(
+            {
+                "HOME": str(home),
+                "OPS_PORT": str(port),
+                "UNARI_OPERATOR_NO_UI": "1",
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONPYCACHEPREFIX": str(home / "pycache"),
+            }
+        )
+        create_venv = run([str(BUNDLED_PYTHON), "-m", "venv", str(app_root / "venv")], env=env, timeout=120)
+        if not create_venv["ok"]:
+            return {"ok": False, "error": "failed to create intentionally broken venv", "detail": create_venv}
+        venv_python = app_root / "venv" / "bin" / "python"
+        precheck = run([str(venv_python), "-c", "import flask"], env=env, timeout=30)
+        if precheck["ok"]:
+            return {"ok": False, "error": "test setup did not create a broken venv"}
+        try:
+            proc = subprocess.run(
+                [str(APP_EXECUTABLE)],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=900,
+            )
+            postcheck = run([str(venv_python), "-c", "import flask, instagrapi"], env=env, timeout=60)
+            data = None
+            deadline = time.time() + 20
+            while time.time() < deadline:
+                try:
+                    data = _read_json(f"http://localhost:{port}/api/setup/status", timeout=5)
+                    break
+                except Exception:
+                    time.sleep(1)
+            logs_dir = home / "Library" / "Logs" / "UnariSagiOperator"
+            launcher_logs = sorted(logs_dir.glob("launcher_*.log")) if logs_dir.exists() else []
+            return {
+                "ok": proc.returncode == 0 and postcheck["ok"] and data is not None and bool(launcher_logs),
+                "returncode": proc.returncode,
+                "postcheck_ok": postcheck["ok"],
+                "setup_status_ok": data is not None,
+                "launcher_log_count": len(launcher_logs),
+                "stdout_tail": proc.stdout[-800:],
+                "stderr_tail": proc.stderr[-800:],
+                "postcheck_stderr_tail": postcheck.get("stderr", "")[-800:],
+            }
+        finally:
+            _kill_port(port)
+
+
+def check_flask_api() -> dict:
+    code = """
+from ops_dashboard.app import app
+client = app.test_client()
+paths = ['/api/setup/status', '/api/sagi/status', '/api/capture/status', '/api/update/status']
+for path in paths:
+    res = client.get(path)
+    assert res.status_code == 200, (path, res.status_code)
+    assert res.is_json, path
+html = client.get('/').get_data(as_text=True)
+assert 'setupJobLog' in html
+assert '初回セットアップ実行ログ' in html
+assert 'Instagram導入' in html
+assert 'Google Sheets接続設定' in html
+assert 'Android画面のInstagram' in html
+assert '① まず件数を確認（本番はまだ走りません）' in html
+assert '② 本番チェックを実行' in html
+assert '途中から再開（追加session後）' in html
+assert '直近CSV' in html
+assert '追加session' in html
+assert '詳細設定 / CSVで実行する場合' in html
+assert '書き戻さずに件数だけ確認' in html
+assert '表示ログをコピー' in html
+assert 'updateStatus' in html
+assert '新しい版があります' in html
+assert 'capturePassword' not in html
+print('api ok')
+"""
+    python = str(ROOT / "venv" / "bin" / "python") if (ROOT / "venv" / "bin" / "python").exists() else sys.executable
+    return run([python, "-c", code], timeout=120)
+
+
+def check_sagi_sheet_job_wiring() -> dict:
+    code = """
+from ops_dashboard import check_jobs
+
+captured = []
+
+def fake_new_job(label, commands, **kwargs):
+    captured.append((label, commands, kwargs))
+    return {"id": "fake", "label": label, "status": "running"}
+
+old_new_job = check_jobs._new_job
+old_active_job = check_jobs._active_job
+try:
+    check_jobs._new_job = fake_new_job
+    check_jobs._active_job = lambda: None
+    job, error = check_jobs.start_sheet_check_job(
+        sheet_url="https://docs.google.com/spreadsheets/d/abc123/edit",
+        tab_name="7_3",
+    )
+    assert error is None, error
+    assert job["id"] == "fake"
+    label, commands, kwargs = captured[0]
+    assert label == "詐欺チェック: ①取込と件数確認"
+    assert "② 本番チェックを実行" in kwargs["success_next_action"]
+    assert commands[0]["cmd"][:4] == [check_jobs.PYTHON, "-u", "scripts/sagi_operator_extract_input.py", "--output"]
+    assert "--sheet-url" in commands[0]["cmd"]
+    assert "--tab-name" in commands[0]["cmd"]
+    assert commands[1]["name"] == "強session必要本数チェック"
+    assert commands[1]["cmd"][:2] == [check_jobs.PYTHON, "-c"]
+    assert "NEEDS_SUPPLEMENT" in commands[1]["cmd"][2]
+    assert len(commands) == 2
+
+    resume_job, resume_error = check_jobs.start_check_job(
+        "ops_dashboard/check_jobs.py",
+        result_csv="ops_dashboard/check_jobs.py",
+        resume=True,
+    )
+    assert resume_error is None, resume_error
+    resume_commands = captured[1][1]
+    assert resume_commands[0]["name"] == "強session必要本数チェック"
+    assert "チェック済み" in resume_commands[0]["cmd"][2]
+    assert "--dry-run" in resume_commands[1]["cmd"]
+    resume_cmd = resume_commands[2]["cmd"]
+    assert "--resume" in resume_cmd
+    assert "--output" in resume_cmd
+
+    _job, missing = check_jobs.start_sheet_check_job(sheet_url="", sheet_id="", tab_name="7_3")
+    assert "Google Sheets URL" in missing
+finally:
+    check_jobs._new_job = old_new_job
+    check_jobs._active_job = old_active_job
+print("sagi sheet job wiring ok")
+"""
+    python = str(ROOT / "venv" / "bin" / "python") if (ROOT / "venv" / "bin" / "python").exists() else sys.executable
+    return run([python, "-c", code], timeout=120)
+
+
+def check_setup_job_wiring() -> dict:
+    code = """
+from pathlib import Path
+from ops_dashboard import setup_jobs
+
+captured = []
+
+def fake_new_job(label, commands, **kwargs):
+    captured.append((label, commands))
+    return {"id": "fake", "label": label, "status": "running"}
+
+setup_jobs._new_job = fake_new_job
+setup_jobs._sheets_bridge_info = lambda: {"backend": "google-api", "ok": False, "token_exists": False}
+
+missing_job, missing_error = setup_jobs.start_setup_job("google-auth")
+assert missing_job is None
+assert "Google API認証ファイルがありません" in missing_error
+
+setup_jobs._sheets_bridge_info = lambda: {"backend": "google-api", "ok": True, "token_exists": False}
+
+for action in ("venv", "device", "instagram", "google-auth", "all"):
+    job, error = setup_jobs.start_setup_job(action)
+    assert error is None, (action, error)
+    assert job["id"] == "fake", action
+
+venv_commands = captured[0][1]
+device_commands = captured[1][1]
+instagram_commands = captured[2][1]
+google_auth_commands = captured[3][1]
+all_commands = captured[4][1]
+
+assert not any("install --upgrade pip" in " ".join(step["cmd"]) for step in venv_commands)
+assert device_commands[0]["cmd"] == ["bash", "scripts/ensure_capture_infra.sh", "--prepare-device"]
+assert device_commands[1]["cmd"] == ["bash", "scripts/setup_ig_capture_device.sh", "all"]
+assert device_commands[2]["cmd"] == ["bash", "scripts/ensure_capture_infra.sh"]
+assert any(step["cmd"] == ["bash", "scripts/ensure_capture_infra.sh", "--prepare-device"] for step in all_commands)
+assert any(step["cmd"] == ["bash", "scripts/setup_ig_capture_device.sh", "all"] for step in all_commands)
+assert instagram_commands[0]["cmd"] == ["bash", "scripts/install_instagram_apk.sh"]
+assert google_auth_commands[0]["cmd"][:3] == [setup_jobs.PYTHON, "-u", "scripts/sheets_auth.py"]
+assert google_auth_commands[0]["env"]["SHEETS_AUTH_CONSOLE"] == "0"
+assert all_commands[-2]["cmd"] == ["bash", "scripts/ensure_capture_infra.sh"]
+assert all_commands[-1]["cmd"] == ["bash", "scripts/install_instagram_apk.sh"]
+
+old_adb = setup_jobs.ADB
+old_avd_exists = setup_jobs._avd_exists
+old_connected_devices = setup_jobs._connected_devices
+old_running_avd_name = setup_jobs._running_avd_name
+old_quick_run = setup_jobs._quick_run
+try:
+    setup_jobs.ADB = Path("/bin/echo")
+    setup_jobs._avd_exists = lambda: False
+    no_avd = setup_jobs._instagram_status()
+    assert no_avd["ok"] is False
+    assert "Android画面 ig_capture" in no_avd["summary"]
+
+    setup_jobs._avd_exists = lambda: True
+    setup_jobs._connected_devices = lambda: ["emulator-5554"]
+    setup_jobs._running_avd_name = lambda serial: "wrong_avd"
+    wrong_avd = setup_jobs._instagram_status()
+    assert wrong_avd["ok"] is False
+    assert "ig_capture ではありません" in wrong_avd["summary"]
+
+    setup_jobs._running_avd_name = lambda serial: setup_jobs.AVD_NAME
+    setup_jobs._quick_run = lambda cmd, timeout=20: {
+        "ok": True,
+        "code": 0,
+        "output": "package:/data/app/com.instagram.android/base.apk",
+    }
+    instagram_ok = setup_jobs._instagram_status()
+    assert instagram_ok["ok"] is True
+finally:
+    setup_jobs.ADB = old_adb
+    setup_jobs._avd_exists = old_avd_exists
+    setup_jobs._connected_devices = old_connected_devices
+    setup_jobs._running_avd_name = old_running_avd_name
+    setup_jobs._quick_run = old_quick_run
+print("setup wiring ok")
+"""
+    python = str(ROOT / "venv" / "bin" / "python") if (ROOT / "venv" / "bin" / "python").exists() else sys.executable
+    return run([python, "-c", code], timeout=120)
+
+
+def check_related_log_stitching() -> dict:
+    code = """
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from ops_dashboard import capture_jobs
+
+old_root = capture_jobs.ROOT
+job_id = "fake-log-tail"
+try:
+    with TemporaryDirectory(prefix="unari_operator_log_tail_") as td:
+        root = Path(td)
+        capture_jobs.ROOT = root
+        log_dir = root / "logs"
+        log_dir.mkdir(parents=True)
+        log_path = log_dir / "mitmdump_keepalive_test.log"
+        log_path.write_text(
+            "first line\\n"
+            "Cookie: sessionid=secret_cookie_value\\n"
+            "password=secret_password_value\\n"
+            "last diagnostic line\\n",
+            encoding="utf-8",
+        )
+        with capture_jobs._LOCK:
+            capture_jobs._JOBS[job_id] = {
+                "id": job_id,
+                "label": "fake",
+                "status": "running",
+                "log": [f"PID=1 LOG={log_path}"],
+            }
+        capture_jobs._append_related_log_tails(job_id, [f"PID=1 LOG={log_path}"])
+        job = capture_jobs.get_job(job_id)
+        text = "\\n".join(job["log"])
+        assert "関連する内部ログの末尾" in text
+        assert "last diagnostic line" in text
+        assert "secret_cookie_value" not in text
+        assert "secret_password_value" not in text
+        assert "[REDACTED]" in text
+finally:
+    capture_jobs.ROOT = old_root
+    with capture_jobs._LOCK:
+        capture_jobs._JOBS.pop(job_id, None)
+print("related log stitching ok")
+"""
+    python = str(ROOT / "venv" / "bin" / "python") if (ROOT / "venv" / "bin" / "python").exists() else sys.executable
+    return run([python, "-c", code], timeout=120)
+
+
+def check_launcher_stale_server_restart() -> dict:
+    text = (ROOT / "scripts" / "install_sagi_operator_app.py").read_text(encoding="utf-8")
+    required = [
+        "stop_existing_operator_server",
+        "stopping existing operator server",
+        "UnariSagiOperator/unari/ops_dashboard/app.py",
+        "operator=1&t=$(date +%s)",
+    ]
+    missing = [item for item in required if item not in text]
+    return {"ok": not missing, "missing": missing}
+
+
+def check_capture_diagnostics() -> dict:
+    code = """
+from pathlib import Path
+from ops_dashboard.capture_jobs import _classify_result
+from scripts import shin_capture_auto
+
+frida = _classify_result(1, ["[FAIL] frida-server 入れ直し失敗 (AVD capture設定をやり直してください)"])
+assert "通信用設定" in frida["next_action"]
+
+port = _classify_result(1, ["[Errno 48] address already in use"])
+assert "8080" in port["next_action"]
+
+other_user_port = _classify_result(1, ["[NG] port 8080 は別ユーザー(tesuto)のプロセスが使用中です。"])
+assert "別ユーザー" in other_user_port["next_action"]
+assert "Macを再起動" in other_user_port["next_action"]
+
+missing_ca = _classify_result(1, ["✗ /Users/tesuto/.mitmproxy/mitmproxy-ca-cert.pem が無い。一度 mitmdump を起動してCAを生成してください"])
+assert "通信の証明書" in missing_ca["next_action"]
+assert "通信用設定" in missing_ca["next_action"]
+
+apk = _classify_result(1, ["InstagramのAPK/APKM/XAPKが見つかりません。"])
+assert apk["outcome"] == "manual_needed"
+assert "Instagram導入" in apk["next_action"]
+assert "同梱" in apk["next_action"]
+assert "Play Storeなしは正常" in apk["next_action"]
+
+ig_flag = _classify_result(3, ["IGFlaggedError: Unable to log in: An unexpected error occurred."])
+assert ig_flag["outcome"] == "manual_needed"
+assert "ログイン連打" in ig_flag["next_action"]
+assert "通信用設定" in ig_flag["next_action"]
+
+feed = _classify_result(2, ["✗ feed not reached (possibly still in post-login modals)", "✗ feed diagnosis: login_screen_still_visible"])
+assert feed["outcome"] == "manual_needed"
+assert "Instagramログインが完了していません" in feed["next_action"]
+
+challenge = _classify_result(3, [
+    "✗ feed diagnosis: challenge_or_2fa:check your email",
+    "two_step_verification",
+    "CertificateException: pinning error",
+])
+assert challenge["outcome"] == "manual_needed"
+assert "メール確認/2FA" in challenge["next_action"]
+assert "録画" in challenge["next_action"]
+
+manual_timeout = _classify_result(3, ["manual_login_timeout:challenge_or_2fa:check your email"])
+assert manual_timeout["outcome"] == "manual_needed"
+assert "認証完了後に「sessionを1本作る」を再実行" in manual_timeout["next_action"]
+
+manual_mode = _classify_result(3, ["manual_login_mode: AVD画面でInstagramへ手動ログインしてください"])
+assert manual_mode["outcome"] == "manual_needed"
+
+missing_accounts = _classify_result(1, ["FileNotFoundError: /Users/member/Library/Application Support/UnariSagiOperator/unari/config/accounts.json"])
+assert missing_accounts["outcome"] == "failed"
+assert "最新版" in missing_accounts["next_action"]
+assert "取り込みだけやり直す" in missing_accounts["next_action"]
+
+sheet_permission = _classify_result(1, ["SheetsBridgeError: Google Sheetsの認証または権限で止まりました。Error 403: Forbidden"])
+assert sheet_permission["outcome"] == "manual_needed"
+assert "Google Sheetsの認証" in sheet_permission["next_action"]
+assert "結果CSV" in sheet_permission["next_action"]
+
+tab_missing = _classify_result(2, ["タブ '7_3' が見つかりません"])
+assert tab_missing["outcome"] == "manual_needed"
+assert "タブ名" in tab_missing["next_action"]
+
+input_error = _classify_result(4, ["login_input_error:username_or_password_rejected:incorrect password"])
+assert input_error["outcome"] == "manual_needed"
+assert "自動再試行" in input_error["next_action"]
+
+feed_with_tls = _classify_result(2, [
+    "✗ feed not reached (possibly still in post-login modals)",
+    "✗ feed diagnosis: login_screen_still_visible",
+    "Client TLS handshake failed",
+])
+assert feed_with_tls["outcome"] == "failed"
+assert "通信補助設定" in feed_with_tls["next_action"]
+
+dns = _classify_result(1, ["error establishing server connection: [Errno 8] nodename nor servname provided", "502 Bad Gateway"])
+assert dns["outcome"] == "failed"
+assert "ネットワーク/DNS" in dns["next_action"]
+
+dns_tls = _classify_result(1, [
+    "✗ transport diagnosis: network_dns_or_502,tls_or_pinning,mitm_log=mitmdump_keepalive.log",
+    "Client TLS handshake failed",
+])
+assert dns_tls["outcome"] == "failed"
+assert "DNS/502" in dns_tls["next_action"]
+
+stale_proxy = _classify_result(1, ["[FAIL] AVDからcapture proxyへ接続できません (10.0.2.2:8080)"])
+assert stale_proxy["outcome"] == "failed"
+assert "通信用設定" in stale_proxy["next_action"]
+
+tls = _classify_result(1, ["Client TLS handshake failed", "pinning error"])
+assert tls["outcome"] == "failed"
+assert "通信補助設定" in tls["next_action"]
+assert "通信用設定" in tls["next_action"]
+
+assert shin_capture_auto._mitmdump_listening("65535") is False
+assert shin_capture_auto._expected_proxy_for_device("emulator-5554") == "10.0.2.2:8080"
+assert shin_capture_auto._expected_proxy_for_device("physical-device") is None
+
+assert "def diagnose_non_feed_screen" in Path("scripts/shin_capture_auto.py").read_text(encoding="utf-8")
+shin = Path("scripts/shin_capture_auto.py").read_text(encoding="utf-8")
+assert "MITM_CA_SRC" in shin
+assert "def sync_frida_config" in shin
+assert "wait_for_frida_hooks" in shin
+assert "wait_for_manual_login_completion" in shin
+assert "manual_login_mode" in shin
+assert "--manual-login" in shin
+assert "manual_login_required" in shin
+assert "--manual-login-timeout" in shin
+assert "--continue-on-error" in shin
+assert "transport diagnosis" in shin
+assert '"--no-proxy"' in shin
+assert '"--no-verify"' in shin
+assert "CERT_PEM block not found" in shin
+assert "synced tools/config.js CA and proxy" in shin
+
+capture_jobs = Path("ops_dashboard/capture_jobs.py").read_text(encoding="utf-8")
+assert "--manual-login" in capture_jobs
+assert "--manual-login-timeout" in capture_jobs
+assert '"900"' in capture_jobs
+assert '"timeout": 1800' in capture_jobs
+assert "login_input_error" in capture_jobs
+assert "メール確認/2FA" in capture_jobs
+assert "config/accounts.json" in capture_jobs
+
+app_html = Path("ops_dashboard/templates/index.html").read_text(encoding="utf-8")
+assert "Android画面のInstagram" in app_html
+assert "① まず件数を確認（本番はまだ走りません）" in app_html
+assert "② 本番チェックを実行" in app_html
+assert "途中から再開（追加session後）" in app_html
+assert "直近CSV" in app_html
+assert "詳細設定 / CSVで実行する場合" in app_html
+assert "詐欺チェックの進行状況" in app_html
+assert "sagiSheetsBridgeHint" in app_html
+assert "setSagiTabByOffset" in app_html
+assert "藤巻確認用ログを見る" in app_html
+assert "表示ログをコピー" in app_html
+assert "capturePassword" not in app_html
+
+ensure = Path("scripts/ensure_capture_infra.sh").read_text(encoding="utf-8")
+assert 'bash "$SETUP_DEVICE" frida' in ensure
+assert 'frida-server 入れ直し完了' in ensure
+assert 'capture_proxy_host' in ensure
+assert '10.0.2.2' in ensure
+assert 'probe_proxy_from_avd' in ensure
+assert 'probe_mac_instagram_dns' in ensure
+assert 'Mac DNS: Instagram接続先を解決できます' in ensure
+assert 'MITM_CA_SRC="$HOME/.mitmproxy/mitmproxy-ca-cert.pem"' in ensure
+assert 'wait_for_mitm_ca' in ensure
+assert '別ユーザー($listener_user)' in ensure
+assert 'proxy_reachable="unknown"' in ensure
+assert 'IG_CAP_USE_UPSTREAM' in ensure
+assert 'settings put global http_proxy "$expected_proxy"' in ensure
+assert '&& $proxy_reachable' not in ensure
+assert 'proxy_reachable -eq' not in ensure
+
+instagram_install = Path("scripts/install_instagram_apk.sh").read_text(encoding="utf-8")
+assert 'emu avd name' in instagram_install
+assert "tr -d '\\\\r'" in instagram_install
+assert "s/[^[:print:]]//g" in instagram_install
+assert '起動中のAVDが $AVD_NAME ではありません' in instagram_install
+assert '"$ADB" -s "$DEVICE" install-multiple' in instagram_install
+
+device_setup = Path("scripts/setup_ig_capture_device.sh").read_text(encoding="utf-8")
+assert 'proxy_host' in device_setup
+assert '10.0.2.2' in device_setup
+assert 'sync_frida_config' in device_setup
+assert 'CERT_PEM block not found' in device_setup
+assert 'Frida config synced to mitmproxy CA' in device_setup
+print("capture diagnostics ok")
+"""
+    python = str(ROOT / "venv" / "bin" / "python") if (ROOT / "venv" / "bin" / "python").exists() else sys.executable
+    return run([python, "-c", code], timeout=120)
+
+
+def check_accounts_config_bootstrap() -> dict:
+    code = """
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from scripts import api_warning_check, import_real_session, verify_captured_session
+
+with TemporaryDirectory(prefix="unari_accounts_bootstrap_") as td:
+    root = Path(td)
+    config_path = root / "config" / "accounts.json"
+    sessions_dir = root / "sessions"
+    sessions_dir.mkdir(parents=True)
+
+    old_import_config = import_real_session.CONFIG_PATH
+    old_verify_config = verify_captured_session.CONFIG_PATH
+    old_verify_sessions = verify_captured_session.SESSIONS_DIR
+    old_api_config = api_warning_check.CONFIG_PATH
+    try:
+        import_real_session.CONFIG_PATH = config_path
+        cfg = import_real_session.load_config()
+        assert cfg["accounts"] == []
+        assert "password" not in cfg
+        changed, status = import_real_session.upsert_account_entry(
+            cfg,
+            username="sora27_1",
+            uuids={"phone_id": "phone-1"},
+            device={"model": "sdk_gphone64_arm64"},
+        )
+        assert changed is True
+        assert "proxy/passwordなし" in status
+        import_real_session.save_config(cfg)
+        written = json.loads(config_path.read_text(encoding="utf-8"))
+        assert written["accounts"][0]["username"] == "sora27_1"
+        assert written["accounts"][0]["proxy"] == ""
+        assert "password" not in written
+
+        session_path = sessions_dir / "sora27_1.json"
+        session_path.write_text(json.dumps({"source": "mitmproxy", "device_settings": {"model": "x"}, "uuids": {"phone_id": "phone-1"}}), encoding="utf-8")
+
+        verify_captured_session.CONFIG_PATH = root / "config" / "missing_accounts.json"
+        verify_captured_session.SESSIONS_DIR = sessions_dir
+        verify_cfg = verify_captured_session.load_config()
+        assert verify_cfg["accounts"] == []
+        session_accounts = verify_captured_session._accounts_from_sessions()
+        assert session_accounts == [{"username": "sora27_1", "proxy": ""}]
+
+        api_warning_check.CONFIG_PATH = root / "config" / "missing_accounts.json"
+        api_cfg = api_warning_check.load_config()
+        assert api_cfg["password"] == ""
+        strong_accounts = api_warning_check._accounts_from_strong_sessions(sessions_dir)
+        assert strong_accounts[0]["username"] == "sora27_1"
+        assert strong_accounts[0]["proxy"] == ""
+        assert strong_accounts[0]["device"] == {"model": "x"}
+        assert strong_accounts[0]["uuids"] == {"phone_id": "phone-1"}
+    finally:
+        import_real_session.CONFIG_PATH = old_import_config
+        verify_captured_session.CONFIG_PATH = old_verify_config
+        verify_captured_session.SESSIONS_DIR = old_verify_sessions
+        api_warning_check.CONFIG_PATH = old_api_config
+print("accounts config bootstrap ok")
+"""
+    python = str(ROOT / "venv" / "bin" / "python") if (ROOT / "venv" / "bin" / "python").exists() else sys.executable
+    return run([python, "-c", code], timeout=120)
+
+
+def check_shell_syntax() -> dict:
+    scripts = [
+        "scripts/ensure_capture_infra.sh",
+        "scripts/setup_ig_capture_avd.sh",
+        "scripts/setup_ig_capture_device.sh",
+        "scripts/install_instagram_apk.sh",
+    ]
+    return run(["bash", "-n", *scripts], timeout=60)
+
+
+def check_docker_compile() -> dict:
+    if shutil.which("docker") is None:
+        return {"ok": False, "error": "docker command not found"}
+    info = run(["docker", "info"], timeout=30)
+    if not info["ok"]:
+        return {"ok": False, "error": "docker daemon unavailable", "detail": info}
+    with tempfile.TemporaryDirectory(prefix="unari_sagi_docker_") as td:
+        tmp = Path(td) / "repo"
+        ignore = shutil.ignore_patterns(
+            ".git",
+            "venv",
+            "venv_ios",
+            "dist",
+            "logs",
+            "data",
+            "sessions",
+            "captures",
+            "cooldowns",
+            "__pycache__",
+            "*.pyc",
+            ".env",
+            "*.env",
+            "accounts.json",
+            "members.json",
+            "capture_pool.json",
+            "soax.json",
+        )
+        shutil.copytree(ROOT, tmp, ignore=ignore)
+        cmd = [
+            "docker",
+            "run",
+            "--rm",
+            "-e",
+            "PYTHONPYCACHEPREFIX=/tmp/pycache",
+            "-v",
+            f"{tmp}:/work:ro",
+            "-w",
+            "/work",
+            "python:3.14-slim",
+            "python",
+            "-m",
+            "compileall",
+            "-q",
+            "scripts",
+            "ops_dashboard",
+        ]
+        return run(cmd, cwd=ROOT, timeout=300)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--docker", action="store_true", help="Docker隔離compile確認も実行する")
+    parser.add_argument("--member-first-launch", action="store_true", help="空のHOMEと最小PATHで配布appの初回起動を確認する")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+
+    results: list[dict] = []
+    quiet = args.json
+    step("make check", run(["make", "check"], timeout=300), results, quiet=quiet)
+    step("shell syntax", check_shell_syntax(), results, quiet=quiet)
+    step("Flask API smoke", check_flask_api(), results, quiet=quiet)
+    step("sagi sheet job wiring", check_sagi_sheet_job_wiring(), results, quiet=quiet)
+    step("setup job wiring", check_setup_job_wiring(), results, quiet=quiet)
+    step("related log stitching", check_related_log_stitching(), results, quiet=quiet)
+    step("launcher stale server restart", check_launcher_stale_server_restart(), results, quiet=quiet)
+    step("capture diagnostics", check_capture_diagnostics(), results, quiet=quiet)
+    step("accounts config bootstrap", check_accounts_config_bootstrap(), results, quiet=quiet)
+    step("build Unari Sagi Operator.app", run(["make", "sagi-operator-install-app"], timeout=300), results, quiet=quiet)
+    step("launcher script", check_launcher_script(), results, quiet=quiet)
+    step("Sheets bridge bundle", check_sheets_bridge_bundle(), results, quiet=quiet)
+    step("Instagram package bundle", check_instagram_package_bundle(), results, quiet=quiet)
+    step("capture tools bundle", check_capture_tools_bundle(), results, quiet=quiet)
+    step("members config bundle", check_members_config_bundle(), results, quiet=quiet)
+    step("update config bundle", check_update_bundle(), results, quiet=quiet)
+    step("bundle Python cache exclusion", check_bundle_python_caches(), results, quiet=quiet)
+    step("app code signature", check_app_signature(), results, quiet=quiet)
+    step("bundled Python runtime", check_bundled_python(), results, quiet=quiet)
+    step("bundle Python cache exclusion after Python check", check_bundle_python_caches(), results, quiet=quiet)
+    step("app code signature after Python check", check_app_signature(), results, quiet=quiet)
+    step("bundle secret exclusion", check_bundle_secrets(), results, quiet=quiet)
+    step("bundle local path exclusion", check_bundle_local_paths(), results, quiet=quiet)
+    if args.member_first_launch:
+        step("member Mac first-launch simulation", check_member_first_launch(), results, quiet=quiet)
+        step("bundle Python cache exclusion after first launch", check_bundle_python_caches(), results, quiet=quiet)
+        step("app code signature after first launch", check_app_signature(), results, quiet=quiet)
+        step("member Mac broken venv repair simulation", check_member_broken_venv_repair(), results, quiet=quiet)
+        step("bundle Python cache exclusion after broken venv repair", check_bundle_python_caches(), results, quiet=quiet)
+        step("app code signature after broken venv repair", check_app_signature(), results, quiet=quiet)
+    if args.docker:
+        step("Docker isolated compile", check_docker_compile(), results, quiet=quiet)
+    step("archive payload verification", check_archive_payloads(), results, quiet=quiet)
+    step("archive content freshness", check_archive_contents(), results, quiet=quiet)
+    step("DMG app code signature", check_dmg_app_signature(), results, quiet=quiet)
+
+    ok = all(item.get("ok") for item in results)
+    payload = {"ok": ok, "results": results}
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

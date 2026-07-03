@@ -1,0 +1,12 @@
+{
+  "_comment": "本番ファイル `config/capture_pool.json` のテンプレート。実ファイルは .gitignore で除外されている。runtime データ (last_attempt, ig_flagged_until) を含むため共有しない。",
+  "target_healthy": 10,
+  "max_new_per_refresh": 8,
+  "cooldown_hours_after_failure": 24,
+  "ig_flagged_until": null,
+  "last_attempt": {},
+  "candidate_usernames": [
+    "your_ig_username_1",
+    "your_ig_username_2"
+  ]
+}

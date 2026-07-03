@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Runtime outputs
+dist/
+logs/
+data/
+sessions/
+captures/
+cooldowns/
+screenshots/
+
+# Secrets and local configs
+.env
+*.env
+config/*.json
+!config/*.example.json
+
+# Local-only binary/runtime assets
+apks/*
+!apks/.gitkeep
+tools/*
+!tools/.gitkeep
+
+# macOS / IDE
+.DS_Store
+.vscode/
+.idea/

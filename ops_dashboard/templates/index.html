@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unari Sagi Operator</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">U</span>
+      <div>
+        <h1>Unari Sagi Operator</h1>
+        <p id="generated">loading...</p>
+      </div>
+    </div>
+    <div class="actions">
+      <a href="#setup-panel">初回セットアップ</a>
+      <a href="#capture-panel">強session補充</a>
+      <a href="#sagi-panel">詐欺チェック</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="update-banner muted" id="updateStatus">更新確認中...</section>
+    <section class="hero operator-hidden" id="overall"></section>
+    <section class="capture-panel" id="setup-panel">
+      <div class="capture-head">
+        <div>
+          <h2>初回セットアップ</h2>
+          <p>このMacで詐欺チェックを動かす準備をします。上から順に緑にします。Apple Silicon Mac専用。</p>
+        </div>
+        <button onclick="loadSetupStatus()">状態更新</button>
+      </div>
+      <div class="capture-layout">
+        <div class="capture-form">
+          <div class="hint-box">
+            <b>最初は「まとめて導入」から</b>
+            <span>①〜⑤を順番に実行します。シート取込や書き戻しを使う前に、最後に⑥Google Sheets接続設定も確認します。</span>
+          </div>
+          <div class="capture-actions">
+            <button class="primary" onclick="startSetup('all')">まとめて導入（①〜⑤）</button>
+            <button onclick="startSetup('venv')">① Python環境</button>
+            <button onclick="startSetup('android-tools')">② Android SDK</button>
+            <button onclick="startSetup('avd')">③ Android画面作成</button>
+            <button onclick="startSetup('device')">④ 通信用設定</button>
+            <button onclick="startSetup('instagram')">⑤ Instagram導入</button>
+            <button onclick="startSetup('google-auth')">⑥ Google Sheets接続設定</button>
+          </div>
+          <ul class="operator-steps">
+            <li>②では数GBのダウンロードとライセンス同意が出ることがあります。</li>
+            <li>macOSの許可画面が出たら許可してください。</li>
+            <li>⑤は配布DMGに同梱済みのInstagramを使います。別ファイルの準備は不要です。</li>
+            <li>⑥は「まとめて導入」には含まれません。シートを使う前に押してください。</li>
+          </ul>
+        </div>
+        <div class="capture-status" id="setupStatus">
+          <div class="muted">状態未取得</div>
+        </div>
+      </div>
+      <div class="job-box">
+        <div class="job-head">
+          <h3>初回セットアップ実行ログ</h3>
+          <span id="setupJobState" class="mini-pill unknown">未実行</span>
+        </div>
+        <div id="setupJobProgress" class="job-progress-card">
+          <div class="progress-copy">まだ実行していません。</div>
+          <div class="progress-track"><span style="width:0%"></span></div>
+        </div>
+        <div id="setupJobNextAction" class="next-action muted">ボタンを押すと進行状況を表示します。長いダウンロード中もこの欄を見てください。</div>
+        <details class="log-details">
+          <summary>検証用ログを見る</summary>
+          <div class="log-tools"><button type="button" onclick="copyVisibleJobLog('setup')">表示ログをコピー</button></div>
+          <pre id="setupJobLog" class="job-log">Android準備、Instagram導入、シート認証のログがここに出ます。</pre>
+        </details>
+      </div>
+    </section>
+    <section class="capture-panel" id="capture-panel">
+      <div class="capture-head">
+        <div>
+          <h2>強session補充</h2>
+          <p>チェックに使うsessionをこのMacに1本作ります。パスワードや認証コードはAndroid画面だけに入力します。</p>
+        </div>
+        <button onclick="loadCaptureStatus()">状態更新</button>
+      </div>
+      <div class="capture-layout">
+        <div class="capture-form">
+          <label>
+            <span>Instagram username</span>
+            <input id="captureUsername" autocomplete="username" placeholder="followjjjjj">
+          </label>
+          <div class="warning-box">
+            <b>パスワード・認証コードはこの画面に入れません</b>
+            <span>「sessionを1本作る」を押した後に開くAndroid画面のInstagramへ手入力します。</span>
+          </div>
+          <ol class="operator-steps">
+            <li>usernameを入れる</li>
+            <li>iPhoneテザリングに接続済みにチェックする</li>
+            <li>「sessionを1本作る」を押す</li>
+            <li>Android画面のInstagramでパスワード・2FA・メール認証を手入力する</li>
+            <li>完了後に必要なら「作ったsessionを確認」を押す</li>
+          </ol>
+          <label>
+            <span>連続作成するときの待ち時間（秒）</span>
+            <input id="captureInterval" type="number" min="30" max="600" value="120">
+          </label>
+          <label class="check-row">
+            <input id="confirmTethering" type="checkbox">
+            <span>MacがiPhoneテザリングに接続済み</span>
+          </label>
+          <label class="check-row">
+            <input id="skipAccountsCheck" type="checkbox" checked>
+            <span>登録リストに無いアカウントでも作る（通常はこのままでOK）</span>
+          </label>
+          <div class="capture-actions">
+            <button class="primary" onclick="startCaptureAll()">sessionを1本作る（推奨）</button>
+          </div>
+          <details class="advanced-fields">
+            <summary>うまくいかない時の手動操作</summary>
+            <div class="capture-actions">
+              <button onclick="startCaptureInfra()">Android準備だけやり直す</button>
+              <button onclick="importLatestCapture()">取り込みだけやり直す</button>
+              <button onclick="verifyCaptureSession()">作ったsessionを確認</button>
+            </div>
+          </details>
+          <p class="muted">実行中はこの画面を閉じてもジョブは継続するが、ログを見るには開いたままが安全。</p>
+        </div>
+        <div class="capture-status" id="captureStatus">
+          <div class="muted">状態未取得</div>
+        </div>
+      </div>
+      <div class="job-box">
+        <div class="job-head">
+          <h3>強session補充の進行状況</h3>
+          <span id="jobState" class="mini-pill unknown">未実行</span>
+        </div>
+        <div id="jobProgress" class="job-progress-card">
+          <div class="progress-copy">まだ実行していません。</div>
+          <div class="progress-track"><span style="width:0%"></span></div>
+        </div>
+        <div id="jobNextAction" class="next-action muted">次の一手はジョブ完了後に表示されます。</div>
+        <details class="log-details">
+          <summary>検証用ログを見る</summary>
+          <div class="log-tools"><button type="button" onclick="copyVisibleJobLog('capture')">表示ログをコピー</button></div>
+          <pre id="jobLog">まだジョブはありません。</pre>
+        </details>
+      </div>
+    </section>
+    <section class="capture-panel" id="sagi-panel">
+      <div class="capture-head">
+        <div>
+          <h2>詐欺チェック実行</h2>
+          <p>Google Sheets URLとタブ名から対象を取り込み、件数確認、本番チェック、書き戻しまで進めます。</p>
+        </div>
+        <button onclick="loadSagiStatus()">状態更新</button>
+      </div>
+      <div class="capture-layout">
+        <div class="capture-form">
+          <label>
+            <span>Google Sheets URL</span>
+            <input id="sagiSheetUrl" placeholder="https://docs.google.com/spreadsheets/d/...">
+          </label>
+          <label>
+            <span>タブ名（日付）</span>
+            <input id="sagiTabName" placeholder="7_2">
+          </label>
+          <div class="field-helper" id="sagiTabHelper">
+            <div>
+              <b>タブ名はシート下部の名前と完全一致</b>
+              <span>例: 今日のタブが「7_3」なら `7_3` と入力。スペースや全角数字が混ざると取込で止まります。</span>
+            </div>
+            <div class="quick-buttons">
+              <button type="button" onclick="setSagiTabByOffset(0)">今日</button>
+              <button type="button" onclick="setSagiTabByOffset(-1)">昨日</button>
+            </div>
+          </div>
+          <div class="field-helper muted" id="sagiSheetsBridgeHint">シート接続状態を確認中...</div>
+          <label>
+            <span>Slack通知に使うあなたの登録名（任意）</span>
+            <input id="sagiRequester" placeholder="例: 自分の登録名">
+          </label>
+          <div class="field-helper muted">
+            <div>
+              <b>書き戻しだけなら空でOK</b>
+              <span>Slackにも通知したい時だけ、管理者が登録した名前を入れます。</span>
+            </div>
+          </div>
+          <div class="hint-box">
+            <b>チェック開始はURLとタブ名だけでOK</b>
+            <span>①は本番を走らせません。対象件数と必要session本数だけ確認します。②は本番チェックなので、確認画面で件数を見てから実行します。途中で止まった時は強session補充で追加sessionを作ってから「途中から再開」を押します。</span>
+          </div>
+          <div class="capture-actions sagi-main-actions">
+            <button class="primary" onclick="runSagiSheetCheck()">① まず件数を確認（本番はまだ走りません）</button>
+            <button class="danger-primary" onclick="runSagiCheck()">② 本番チェックを実行</button>
+            <button onclick="resumeSagiCheck()">途中から再開（追加session後）</button>
+            <button onclick="writebackSagi(true)">③ 書き戻さずに件数だけ確認（安全）</button>
+            <button onclick="writebackSagi(false)">④ シートのD列に反映（確定）</button>
+          </div>
+          <details class="advanced-fields">
+            <summary>詳細設定 / CSVで実行する場合</summary>
+            <label>
+              <span>Sheet ID（URLの代わりに使う場合）</span>
+              <input id="sagiSheetId" placeholder="1T659...">
+            </label>
+            <label>
+              <span>CSV path（repo配下、account_id列）</span>
+              <input id="sagiCsvPath" placeholder="logs/input.csv">
+            </label>
+            <label>
+              <span>入力CSV（取込後に自動入力）</span>
+              <input id="sagiInputCsv" placeholder="logs/sagi_operator_input_YYYYMMDD_HHMMSS.csv">
+            </label>
+            <label>
+              <span>結果CSV（本番後に自動入力）</span>
+              <input id="sagiResultCsv" placeholder="logs/sagi_operator_result_YYYYMMDD_HHMMSS.csv">
+            </label>
+            <h3 class="subhead">直近CSV</h3>
+            <div class="csv-picker" id="sagiCsvPicker"></div>
+            <div class="capture-actions">
+              <button onclick="extractSagiInput()">CSV取込だけ実行</button>
+              <button onclick="checkSagiInventory()">session在庫を確認</button>
+              <button onclick="dryrunSagi()">安全確認だけ実行</button>
+              <button onclick="notifySagiTest()">通知テスト</button>
+            </div>
+          </details>
+          <p class="muted">書き戻しで権限エラーになった場合でも、結果CSVは残ります。対象シートをこのMacのGoogle Sheets連携アカウントへ共有してから、書き戻し確認を押し直してください。</p>
+        </div>
+        <div class="capture-status" id="sagiStatus">
+          <div class="muted">状態未取得</div>
+        </div>
+      </div>
+      <div class="job-box">
+        <div class="job-head">
+          <h3>詐欺チェックの進行状況</h3>
+          <span id="sagiJobState" class="mini-pill unknown">未実行</span>
+        </div>
+        <div id="sagiJobProgress" class="job-progress-card">
+          <div class="progress-copy">① まず件数を確認（本番はまだ走りません）から始めます。</div>
+          <div class="progress-track"><span style="width:0%"></span></div>
+        </div>
+        <div id="sagiJobNextAction" class="next-action muted">ここに次に押すボタンを表示します。</div>
+        <details class="log-details">
+          <summary>藤巻確認用ログを見る</summary>
+          <div class="log-tools"><button type="button" onclick="copyVisibleJobLog('sagi')">表示ログをコピー</button></div>
+          <pre id="sagiJobLog" class="job-log">まだジョブはありません。</pre>
+        </details>
+      </div>
+    </section>
+    <section class="section-toolbar operator-hidden">
+      <div>
+        <h2>確認エリア</h2>
+        <p>赤と黄を先に見て、緑は必要なときだけ開く。</p>
+      </div>
+      <div class="legend">
+        <span><i class="dot red"></i>要対応</span>
+        <span><i class="dot yellow"></i>確認</span>
+        <span><i class="dot green"></i>正常</span>
+      </div>
+    </section>
+    <section class="grid operator-hidden" id="sections"></section>
+    <section class="links operator-hidden">
+      <h2>運用リンク</h2>
+      <div id="links"></div>
+    </section>
+  </main>
+
+  <script>
+    const labels = {
+      sales_ops: '今日の営業オペ',
+      pdca: 'PDCA / 振り返り',
+      tap_recorder: 'tap-recorder',
+      account_health: 'アカウント健全性',
+      analysis: 'ターゲティング / 分析',
+      knowledge: 'ナレッジ / 商談FBK'
+    };
+    const levelText = {red: '要対応', yellow: '確認', green: '正常', unknown: '不明'};
+    const levelOrder = {red: 0, yellow: 1, green: 2, unknown: 3};
+    let captureJobId = null;
+    let captureJobTimer = null;
+    let setupJobId = null;
+    let setupJobTimer = null;
+    let sagiJobId = null;
+    let sagiJobTimer = null;
+    let latestSagiStatus = null;
+    const sagiStorageFields = ['sagiSheetUrl', 'sagiSheetId', 'sagiTabName', 'sagiRequester', 'sagiInputCsv', 'sagiResultCsv'];
+    const outcomeText = {
+      running: '実行中',
+      succeeded: '完了',
+      needs_supplement: 'session補充が必要',
+      manual_needed: '手動操作が必要',
+      failed: '失敗',
+      unknown: '不明'
+    };
+
+    async function loadStatus() {
+      const res = await fetch('/api/status');
+      const data = await res.json();
+      render(data);
+    }
+
+    async function refreshSnapshot() {
+      const btn = document.getElementById('refreshBtn');
+      btn.disabled = true;
+      btn.textContent = '更新中...';
+      try {
+        const res = await fetch('/api/refresh', {method: 'POST'});
+        const payload = await res.json();
+        render(payload.data);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '手動更新';
+      }
+    }
+
+    async function loadUpdateStatus() {
+      const el = document.getElementById('updateStatus');
+      if (!el) return;
+      try {
+        const res = await fetch('/api/update/status');
+        const data = await res.json();
+        if (!data.enabled) {
+          el.className = 'update-banner muted hidden';
+          el.textContent = '';
+          return;
+        }
+        const current = (data.current && data.current.version) || '-';
+        const latest = (data.latest && data.latest.version) || '-';
+        if (data.update_available) {
+          const download = data.latest && data.latest.download_url ? `
+            <a href="${escapeHtml(data.latest.download_url)}" target="_blank" rel="noopener">最新版を開く</a>
+          ` : '';
+          el.className = 'update-banner yellow';
+          el.innerHTML = `
+            <div>
+              <b>新しい版があります</b>
+              <span>今の版: ${escapeHtml(current)} / 最新版: ${escapeHtml(latest)}。作業中なら終わってから、最新版DMGに入れ替えてください。</span>
+            </div>
+            ${download}
+          `;
+          return;
+        }
+        if (data.ok) {
+          el.className = 'update-banner green';
+          el.innerHTML = `
+            <div>
+              <b>アプリは最新版です</b>
+              <span>今の版: ${escapeHtml(current)}</span>
+            </div>
+          `;
+          return;
+        }
+        el.className = 'update-banner yellow';
+        el.innerHTML = `
+          <div>
+            <b>更新確認ができません</b>
+            <span>${escapeHtml(data.message || 'ネット接続を確認してください。作業は続けられます。')}</span>
+          </div>
+        `;
+      } catch (e) {
+        el.className = 'update-banner yellow';
+        el.innerHTML = `
+          <div>
+            <b>更新確認ができません</b>
+            <span>ネット接続を確認してください。作業は続けられます。</span>
+          </div>
+        `;
+      }
+    }
+
+    function render(data) {
+      document.getElementById('generated').textContent = `生成: ${data.generated_at || '-'}`;
+      renderOverall(data.overall || {});
+      renderSections(data);
+      renderLinks(data.links || []);
+    }
+
+    async function loadSetupStatus() {
+      const el = document.getElementById('setupStatus');
+      el.innerHTML = '<div class="muted">状態取得中...</div>';
+      try {
+        const res = await fetch('/api/setup/status');
+        const data = await res.json();
+        const cards = Object.entries(data.checks || {}).map(([key, item]) => `
+          <div class="mini-card ${item.ok ? 'green' : 'red'}">
+            <b>${escapeHtml(setupLabel(key))}</b>
+            <span>${escapeHtml(item.summary || '')}</span>
+            ${item.ok ? '' : `<em>${escapeHtml(item.next_action || '')}</em>`}
+          </div>
+        `).join('');
+        el.innerHTML = `
+          <div class="status-grid">${cards}</div>
+          <div class="muted setup-meta">root: ${escapeHtml(data.root || '')}<br>ANDROID_HOME: ${escapeHtml(data.android_home || '')}</div>
+        `;
+        if (data.latest_job && !setupJobId) {
+          renderJob(data.latest_job, 'setup');
+          if (data.latest_job.status === 'running') watchJob(data.latest_job.id, 'setup');
+        }
+      } catch (e) {
+        el.innerHTML = `<div class="error">${escapeHtml(String(e))}</div>`;
+      }
+    }
+
+    function setupLabel(key) {
+      return ({
+        apple_silicon: 'Apple Silicon',
+        python_runtime: 'Python環境',
+        venv: 'Python環境',
+        flask: 'Flask',
+        mitmproxy: '通信取得ツール',
+        frida: '通信補助ツール',
+        java: 'Java',
+        sdkmanager: 'SDK Manager',
+        adb: 'ADB',
+        emulator: 'Android起動ツール',
+        avd: 'Android画面',
+        instagram_app: 'Instagramアプリ',
+        mitm_ca: '通信の証明書',
+        sheets_bridge: 'シート連携設定',
+        sheets_auth: 'Google Sheets接続',
+        members_config: '通知設定'
+      })[key] || key;
+    }
+
+    async function startSetup(action) {
+      await postJob('/api/setup/run', {action}, 'setup');
+    }
+
+    async function loadCaptureStatus() {
+      const el = document.getElementById('captureStatus');
+      el.innerHTML = '<div class="muted">状態取得中...</div>';
+      try {
+        const res = await fetch('/api/capture/status');
+        const data = await res.json();
+        renderCaptureStatus(data);
+        if (data.latest_job && !captureJobId) {
+          renderJob(data.latest_job);
+          if (data.latest_job.status === 'running') watchCaptureJob(data.latest_job.id);
+        }
+      } catch (e) {
+        el.innerHTML = `<div class="error">${escapeHtml(String(e))}</div>`;
+      }
+    }
+
+    function renderCaptureStatus(data) {
+      const infra = data.infra || {};
+      const adb = data.adb || {};
+      const wifi = data.wifi || {};
+      const captures = (data.captures || []).slice(0, 5).map(x => `<li>${escapeHtml(x.name)} <span>${escapeHtml(x.mtime || '')}</span></li>`).join('');
+      const sessions = (data.session_files || []).slice(0, 5).map(x => `<li>${escapeHtml(x.name)} <span>${escapeHtml(x.mtime || '')}</span></li>`).join('');
+      document.getElementById('captureStatus').innerHTML = `
+        <div class="status-grid">
+          <div class="mini-card ${wifi.ok ? 'green' : 'yellow'}">
+            <b>回線</b>
+            <span>${escapeHtml(firstLine(wifi.output) || '未確認')}</span>
+          </div>
+          <div class="mini-card ${adb.ok ? 'green' : 'yellow'}">
+            <b>Android接続</b>
+            <span>${escapeHtml(firstUsefulLine(adb.output) || 'Android未確認')}</span>
+          </div>
+          <div class="mini-card ${infra.ok ? 'green' : 'yellow'}">
+            <b>Android準備</b>
+            <span>${escapeHtml(infra.ok ? '準備OK' : '確認が必要')}</span>
+          </div>
+        </div>
+        <div class="capture-columns">
+          <div>
+            <h3>最新capture</h3>
+            <ul>${captures || '<li>なし</li>'}</ul>
+          </div>
+          <div>
+            <h3>最新session</h3>
+            <ul>${sessions || '<li>なし</li>'}</ul>
+          </div>
+        </div>
+        <details>
+          <summary>詳細ログ</summary>
+          <pre>${escapeHtml([
+            '--- wifi ---',
+            wifi.output || '',
+            '--- adb ---',
+            adb.output || '',
+            '--- infra ---',
+            infra.output || '',
+            '--- strong sessions ---',
+            (data.sessions || {}).output || ''
+          ].join('\\n'))}</pre>
+        </details>
+      `;
+    }
+
+    async function startCaptureInfra() {
+      await postJob('/api/capture/start-infra', {}, 'capture');
+    }
+
+    async function startCaptureAll() {
+      const payload = {
+        username: document.getElementById('captureUsername').value.trim(),
+        interval: Number(document.getElementById('captureInterval').value || 120),
+        confirm_tethering: document.getElementById('confirmTethering').checked,
+        skip_accounts_check: document.getElementById('skipAccountsCheck').checked,
+        manual_login: true
+      };
+      await postJob('/api/capture/run-all', payload, 'capture');
+    }
+
+    async function importLatestCapture() {
+      await postJob('/api/capture/import-latest', {
+        username: document.getElementById('captureUsername').value.trim()
+      }, 'capture');
+    }
+
+    async function verifyCaptureSession() {
+      await postJob('/api/capture/verify', {
+        username: document.getElementById('captureUsername').value.trim()
+      }, 'capture');
+    }
+
+    async function loadSagiStatus() {
+      const input = document.getElementById('sagiInputCsv').value.trim();
+      const url = input ? `/api/sagi/status?input_csv=${encodeURIComponent(input)}` : '/api/sagi/status';
+      const el = document.getElementById('sagiStatus');
+      el.innerHTML = '<div class="muted">状態取得中...</div>';
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        latestSagiStatus = data;
+        const enough = data.needed_sessions === null || data.healthy_sessions === null ? null : data.healthy_sessions >= data.needed_sessions;
+        const notStarted = data.input_count === null;
+        renderSheetsBridgeHint(data.sheets_bridge);
+        el.innerHTML = `
+          <div class="status-grid">
+            <div class="mini-card ${data.no_proxy ? 'green' : 'red'}">
+              <b>実行モード</b>
+              <span>本番は安全モード固定</span>
+            </div>
+            <div class="mini-card ${notStarted ? 'yellow' : enough === false ? 'red' : 'green'}">
+              <b>必要在庫</b>
+              <span>${notStarted ? '①で件数確認をすると表示されます' : `対象 ${data.input_count} 件 / 必要 ${data.needed_sessions} 本`}</span>
+            </div>
+            <div class="mini-card ${notStarted ? 'yellow' : enough === false ? 'red' : 'green'}">
+              <b>現在在庫</b>
+              <span>使えるsession ${data.healthy_sessions ?? '-'} 本 / 確認済み ${data.probe_sessions ?? '-'} 本</span>
+            </div>
+          </div>
+          ${csvListsHtml(data)}
+          <details>
+            <summary>session詳細</summary>
+            <pre>${escapeHtml((data.sessions || {}).output || '')}</pre>
+          </details>
+        `;
+        renderCsvPicker(data);
+      } catch (e) {
+        el.innerHTML = `<div class="error">${escapeHtml(String(e))}</div>`;
+      }
+    }
+
+    function renderSheetsBridgeHint(raw) {
+      const el = document.getElementById('sagiSheetsBridgeHint');
+      if (!el) return;
+      let info = null;
+      try {
+        info = JSON.parse((raw && raw.output) || '{}');
+      } catch (_) {
+        info = null;
+      }
+      if (!info) {
+        el.className = 'field-helper warning-soft';
+        el.innerHTML = '<b>シート接続状態を確認できません</b><span>最新版アプリを開き直してください。</span>';
+        return;
+      }
+      if (info.backend === 'apps-script' && info.ok) {
+        el.className = 'field-helper ok-soft';
+        el.innerHTML = '<b>シート接続OK</b><span>このMacでGoogleログインしなくても取込・書き戻しできます。</span>';
+        return;
+      }
+      el.className = 'field-helper warning-soft';
+      el.innerHTML = `<b>シート接続が未完了です</b><span>${escapeHtml(info.summary || '管理者に最新版アプリを確認してください。')}</span>`;
+    }
+
+    async function extractSagiInput() {
+      await postJob('/api/sagi/extract', {
+        sheet_url: document.getElementById('sagiSheetUrl').value.trim(),
+        sheet_id: document.getElementById('sagiSheetId').value.trim(),
+        tab_name: document.getElementById('sagiTabName').value.trim(),
+        csv_path: document.getElementById('sagiCsvPath').value.trim()
+      }, 'sagi');
+    }
+
+    async function runSagiSheetCheck() {
+      const url = document.getElementById('sagiSheetUrl').value.trim();
+      const sheetId = document.getElementById('sagiSheetId').value.trim() || extractSheetId(url);
+      persistSagiForm();
+      await postJob('/api/sagi/sheet-check', {
+        sheet_url: url,
+        sheet_id: sheetId,
+        tab_name: document.getElementById('sagiTabName').value.trim()
+      }, 'sagi');
+    }
+
+    async function checkSagiInventory() {
+      await postJob('/api/sagi/inventory', {
+        input_csv: document.getElementById('sagiInputCsv').value.trim()
+      }, 'sagi');
+    }
+
+    async function dryrunSagi() {
+      await postJob('/api/sagi/dryrun', {
+        input_csv: document.getElementById('sagiInputCsv').value.trim()
+      }, 'sagi');
+    }
+
+    async function runSagiCheck() {
+      const input = document.getElementById('sagiInputCsv').value.trim();
+      if (!input) {
+        showJobInputError('先に①「まず件数を確認（本番はまだ走りません）」を押してください。', 'sagi');
+        return;
+      }
+      const count = latestSagiStatus && latestSagiStatus.input_count !== null ? latestSagiStatus.input_count : null;
+      const needed = latestSagiStatus && latestSagiStatus.needed_sessions !== null ? latestSagiStatus.needed_sessions : null;
+      const ok = window.confirm([
+        count === null ? 'この入力CSVを本番チェックします。' : `この入力CSVの全 ${count} 件を本番チェックします。`,
+        needed === null ? '' : `必要なsession目安: ${needed}本`,
+        'この操作でInstagramの本番チェックを開始します。',
+        '途中で止まったら追加sessionを作って「途中から再開」を押します。',
+        'sessionを消費します。よろしいですか？'
+      ].filter(Boolean).join('\n'));
+      if (!ok) return;
+      await postJob('/api/sagi/check', {
+        input_csv: input
+      }, 'sagi');
+    }
+
+    async function resumeSagiCheck() {
+      const input = document.getElementById('sagiInputCsv').value.trim();
+      const result = document.getElementById('sagiResultCsv').value.trim();
+      if (!input || !result) {
+        showJobInputError('続きから再開するには、入力CSVと結果CSVを選んでください。直近CSVから選べます。', 'sagi');
+        return;
+      }
+      await postJob('/api/sagi/check', {
+        input_csv: input,
+        result_csv: result,
+        resume: true
+      }, 'sagi');
+    }
+
+    async function writebackSagi(dryRun) {
+      const sheetId = document.getElementById('sagiSheetId').value.trim() || extractSheetId(document.getElementById('sagiSheetUrl').value.trim());
+      if (!document.getElementById('sagiResultCsv').value.trim()) {
+        showJobInputError('先に本番チェックを完了するか、直近CSVから結果CSVを選んでください。', 'sagi');
+        return;
+      }
+      if (!dryRun) {
+        const tab = document.getElementById('sagiTabName').value.trim() || '指定タブ';
+        const ok = window.confirm(`シート「${tab}」のD列に結果を反映します。\n先に③「書き戻さずに件数だけ確認（安全）」を済ませましたか？`);
+        if (!ok) return;
+      }
+      await postJob('/api/sagi/writeback', {
+        result_csv: document.getElementById('sagiResultCsv').value.trim(),
+        sheet_id: sheetId,
+        tab_name: document.getElementById('sagiTabName').value.trim(),
+        requester: document.getElementById('sagiRequester').value.trim(),
+        dry_run: dryRun
+      }, 'sagi');
+    }
+
+    async function notifySagiTest() {
+      await postJob('/api/sagi/notify-test', {
+        requester: document.getElementById('sagiRequester').value.trim()
+      }, 'sagi');
+    }
+
+    async function postJob(endpoint, payload, target = 'capture') {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        showJobInputError(data.error || '入力内容を確認してください。', target);
+        return;
+      }
+      renderJob(data.job, target);
+      watchJob(data.job.id, target);
+    }
+
+    function watchCaptureJob(jobId) {
+      watchJob(jobId, 'capture');
+    }
+
+    function watchJob(jobId, target = 'capture') {
+      if (target === 'setup') {
+        setupJobId = jobId;
+        if (setupJobTimer) clearInterval(setupJobTimer);
+      } else if (target === 'sagi') {
+        sagiJobId = jobId;
+        if (sagiJobTimer) clearInterval(sagiJobTimer);
+      } else {
+        captureJobId = jobId;
+        if (captureJobTimer) clearInterval(captureJobTimer);
+      }
+      const timer = setInterval(async () => {
+        const res = await fetch(`/api/jobs/${jobId}`);
+        const data = await res.json();
+        if (!data.ok) return;
+        renderJob(data.job, target);
+        if (data.job.status !== 'running') {
+          clearInterval(timer);
+          if (target === 'setup') {
+            setupJobTimer = null;
+            setupJobId = null;
+          } else if (target === 'sagi') {
+            sagiJobTimer = null;
+            sagiJobId = null;
+          } else {
+            captureJobTimer = null;
+            captureJobId = null;
+          }
+          if (target === 'setup') {
+            loadSetupStatus();
+            loadSagiStatus();
+          } else if (target === 'sagi') {
+            loadSagiStatus();
+          } else {
+            loadCaptureStatus();
+            loadSagiStatus();
+          }
+        }
+      }, target === 'sagi' ? 3000 : 2500);
+      if (target === 'setup') {
+        setupJobTimer = timer;
+      } else if (target === 'sagi') {
+        sagiJobTimer = timer;
+      } else {
+        captureJobTimer = timer;
+      }
+    }
+
+    function jobElements(target = 'capture') {
+      if (target === 'setup') {
+        return {
+          state: document.getElementById('setupJobState'),
+          log: document.getElementById('setupJobLog'),
+          next: document.getElementById('setupJobNextAction'),
+          progress: document.getElementById('setupJobProgress')
+        };
+      }
+      if (target === 'sagi') {
+        return {
+          state: document.getElementById('sagiJobState'),
+          log: document.getElementById('sagiJobLog'),
+          next: document.getElementById('sagiJobNextAction'),
+          progress: document.getElementById('sagiJobProgress')
+        };
+      }
+      return {
+        state: document.getElementById('jobState'),
+        log: document.getElementById('jobLog'),
+        next: document.getElementById('jobNextAction'),
+        progress: document.getElementById('jobProgress')
+      };
+    }
+
+    function renderJob(job, target = 'capture') {
+      const els = jobElements(target);
+      const badge = els.state;
+      const level = job.status === 'succeeded' ? 'green' : job.status === 'failed' ? 'red' : 'yellow';
+      const outcome = job.outcome || job.status || 'unknown';
+      badge.textContent = `${job.label || 'job'} / ${outcomeText[outcome] || outcome}`;
+      badge.className = `mini-pill ${level}`;
+      const logText = (job.log || []).join('\n') || 'ログ待ち...';
+      els.log.textContent = tailLog(logText, 180);
+      els.next.textContent = job.next_action || 'ログを確認してください。';
+      els.next.className = `next-action ${level}`;
+      renderJobProgress(job, logText, els.progress);
+      const inputMatch = logText.match(/logs\/sagi_operator_input_\d{8}_\d{6}\.csv/);
+      if (inputMatch) setSagiField('sagiInputCsv', inputMatch[0]);
+      const resultMatch = logText.match(/logs\/sagi_operator_result_\d{8}_\d{6}\.csv/);
+      if (resultMatch) setSagiField('sagiResultCsv', resultMatch[0]);
+    }
+
+    function tailLog(text, maxLines) {
+      const lines = String(text || '').split('\n');
+      if (lines.length <= maxLines) return text;
+      return `... ${lines.length - maxLines}行省略 ...\n` + lines.slice(-maxLines).join('\n');
+    }
+
+    function renderJobProgress(job, logText, el) {
+      if (!el) return;
+      const commandTotal = Number(job.total_steps || (job.commands || []).length || 1);
+      const commandIndex = Number(job.current_step_index || (job.status === 'succeeded' ? commandTotal : 0));
+      const itemProgress = findItemProgress(logText);
+      let percent = commandTotal ? Math.round((Math.max(0, commandIndex - (job.status === 'running' ? 1 : 0)) / commandTotal) * 100) : 0;
+      let copy = job.current_step ? `いま: ${job.current_step}` : (job.status === 'succeeded' ? '完了しました' : '待機中');
+      if (itemProgress) {
+        percent = Math.max(percent, Math.round((itemProgress.done / itemProgress.total) * 100));
+        copy = `チェック中: ${itemProgress.done}/${itemProgress.total}件`;
+      }
+      if (job.status === 'succeeded') percent = 100;
+      if (job.status === 'failed') percent = Math.max(percent, 8);
+      el.innerHTML = `
+        <div class="progress-copy">${escapeHtml(copy)}</div>
+        <div class="progress-track"><span style="width:${Math.max(0, Math.min(percent, 100))}%"></span></div>
+      `;
+    }
+
+    function findItemProgress(text) {
+      const matches = [...String(text || '').matchAll(/\[(\d+)\/(\d+)\]/g)];
+      if (!matches.length) return null;
+      const last = matches[matches.length - 1];
+      const done = Number(last[1]);
+      const total = Number(last[2]);
+      if (!done || !total) return null;
+      return {done, total};
+    }
+
+    function showJobInputError(message, target = 'capture') {
+      const els = jobElements(target);
+      els.state.textContent = '入力確認';
+      els.state.className = 'mini-pill red';
+      els.next.textContent = message;
+      els.next.className = 'next-action red';
+      els.log.textContent = message;
+      renderJobProgress({status: 'failed', current_step: '入力確認', total_steps: 1, current_step_index: 1}, message, els.progress);
+    }
+
+    async function copyVisibleJobLog(target = 'capture') {
+      const els = jobElements(target);
+      const text = els.log ? els.log.textContent : '';
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        els.next.textContent = '表示中のログをコピーしました。エラー相談時はこの内容を藤巻または管理者へ渡してください。';
+        els.next.className = 'next-action yellow';
+      } catch (e) {
+        els.next.textContent = 'ログを自動コピーできませんでした。ログ欄を開いて、見えている範囲を選択して共有してください。';
+        els.next.className = 'next-action red';
+      }
+    }
+
+    function csvListsHtml(data) {
+      const inputs = csvListHtml('入力CSV', 'input', data.latest_inputs || []);
+      const results = csvListHtml('結果CSV', 'result', data.latest_results || []);
+      if (!inputs && !results) return '';
+      return `<div class="csv-lists">${inputs}${results}</div>`;
+    }
+
+    function csvListHtml(title, type, items) {
+      if (!items.length) return '';
+      return `
+        <div class="csv-list">
+          <h3>${escapeHtml(title)}</h3>
+          ${items.slice(0, 4).map(item => `
+            <button type="button" data-csv-type="${escapeHtml(type)}" data-csv-path="${escapeHtml(item.path)}" onclick="selectSagiCsv(this.dataset.csvType, this.dataset.csvPath)">
+              ${escapeHtml(item.name)}<span>${escapeHtml(String(item.row_count ?? '-'))}件</span>
+            </button>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    function renderCsvPicker(data) {
+      const el = document.getElementById('sagiCsvPicker');
+      if (!el) return;
+      el.innerHTML = csvListsHtml(data) || '<div class="muted">本番チェック後、ここから結果CSVを選べます。</div>';
+    }
+
+    function selectSagiCsv(type, path) {
+      setSagiField(type === 'input' ? 'sagiInputCsv' : 'sagiResultCsv', path);
+      loadSagiStatus();
+    }
+
+    function setSagiField(id, value) {
+      const el = document.getElementById(id);
+      if (!el || !value) return;
+      el.value = value;
+      persistSagiForm();
+    }
+
+    function setSagiTabByOffset(offsetDays) {
+      const d = new Date();
+      d.setDate(d.getDate() + Number(offsetDays || 0));
+      setSagiField('sagiTabName', `${d.getMonth() + 1}_${d.getDate()}`);
+    }
+
+    function persistSagiForm() {
+      for (const id of sagiStorageFields) {
+        const el = document.getElementById(id);
+        if (el) localStorage.setItem(`unari_operator_${id}`, el.value || '');
+      }
+    }
+
+    function restoreSagiForm() {
+      for (const id of sagiStorageFields) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        const saved = localStorage.getItem(`unari_operator_${id}`);
+        if (saved) el.value = saved;
+        el.addEventListener('input', persistSagiForm);
+        el.addEventListener('change', persistSagiForm);
+      }
+    }
+
+    function firstLine(text) {
+      return String(text || '').split('\n').find(Boolean) || '';
+    }
+
+    function firstUsefulLine(text) {
+      return String(text || '').split('\n').find(line => line.includes('device') || line.includes('emulator')) || firstLine(text);
+    }
+
+    function extractSheetId(url) {
+      const match = String(url || '').match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+      return match ? match[1] : '';
+    }
+
+    function renderOverall(overall) {
+      const el = document.getElementById('overall');
+      const level = overall.level || 'unknown';
+      const counts = overall.level_counts || {};
+      const actions = (overall.top_actions || []).map(action => {
+        if (typeof action === 'string') return `<li>${escapeHtml(action)}</li>`;
+        return `
+          <li>
+            <span class="mini-pill ${action.level || 'unknown'}">${levelText[action.level] || action.level || '-'}</span>
+            <b>${escapeHtml(labels[action.section] || action.section || '')}</b>
+            <span>${escapeHtml(action.summary || '')}</span>
+          </li>
+        `;
+      }).join('');
+      el.innerHTML = `
+        <div class="status ${level}">
+          <span>${levelText[level] || level}</span>
+          <small>${level.toUpperCase()}</small>
+        </div>
+        <div class="priority">
+          <h2>今日の優先確認</h2>
+          <ul>${actions || '<li>スナップショット未生成</li>'}</ul>
+        </div>
+        <div class="totals">
+          <div><b>${counts.red || 0}</b><span>要対応</span></div>
+          <div><b>${counts.yellow || 0}</b><span>確認</span></div>
+          <div><b>${counts.green || 0}</b><span>正常</span></div>
+        </div>
+      `;
+    }
+
+    function renderSections(data) {
+      const root = document.getElementById('sections');
+      root.innerHTML = '';
+      Object.keys(labels).sort((a, b) => {
+        const la = (data[a] || {}).level || 'unknown';
+        const lb = (data[b] || {}).level || 'unknown';
+        return (levelOrder[la] ?? 9) - (levelOrder[lb] ?? 9);
+      }).forEach(key => {
+        root.appendChild(sectionCard(key, data[key] || {}));
+      });
+    }
+
+    function sectionCard(key, sec) {
+      const div = document.createElement('article');
+      div.className = `card ${sec.level || 'unknown'}`;
+      const items = renderItems(sec.items || []);
+      const errors = (sec.errors || []).map(e => `<div class="error">${escapeHtml(e)}</div>`).join('');
+      div.innerHTML = `
+        <div class="card-head">
+          <div>
+            <h2>${labels[key]}</h2>
+            <p>${escapeHtml(sec.updated_at || '')}</p>
+          </div>
+          <span class="pill ${sec.level || 'unknown'}">${levelText[sec.level] || sec.level || '-'}</span>
+        </div>
+        <p class="summary">${escapeHtml(sec.summary || '')}</p>
+        <div class="items">${items}</div>
+        ${errors}
+      `;
+      return div;
+    }
+
+    function renderItems(items) {
+      if (!items.length) return '<div class="muted">項目なし</div>';
+      return items.map(item => {
+        if (item.label) {
+          return `<div class="metric"><span>${escapeHtml(item.label)}</span><b>${escapeHtml(String(item.value))}</b></div>`;
+        }
+        const title = item.title || item.source || item.path || 'item';
+        const path = item.path ? `<div class="path">${escapeHtml(item.path)}</div>` : '';
+        const lines = (item.lines || item.head || []).slice(0, 5).map(x => `<li>${escapeHtml(String(x))}</li>`).join('');
+        const counts = item.counts ? renderKeyValues(item.counts) : '';
+        const actions = item.actions ? renderKeyValues(item.actions) : '';
+        const topDevices = item.top_devices ? `<div class="chips">${item.top_devices.slice(0, 8).map(pair => `<span>${escapeHtml(pair[0])}: ${escapeHtml(String(pair[1]))}</span>`).join('')}</div>` : '';
+        const total = item.total !== undefined ? `<div class="metric"><span>本日合計</span><b>${item.total}</b></div>` : '';
+        const entries = item.entries !== undefined ? `<div class="metric"><span>登録数</span><b>${escapeHtml(String(item.entries))}</b></div>` : '';
+        const summaryCount = item.summary_count !== undefined ? `<div class="metric"><span>summary</span><b>${escapeHtml(String(item.summary_count))}</b></div>` : '';
+        const fbkCount = item.fbk_count !== undefined ? `<div class="metric"><span>fbk</span><b>${escapeHtml(String(item.fbk_count))}</b></div>` : '';
+        return `
+          <div class="item">
+            <h3>${escapeHtml(title)}</h3>
+            ${path}
+            <div class="item-body">${total}${entries}${summaryCount}${fbkCount}${counts}${actions}${topDevices}${lines ? `<ul>${lines}</ul>` : ''}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderKeyValues(obj) {
+      const entries = Object.entries(obj || {});
+      if (!entries.length) return '';
+      return `<div class="kv">${entries.map(([k, v]) => `<span>${escapeHtml(k)}</span><b>${escapeHtml(String(v))}</b>`).join('')}</div>`;
+    }
+
+    function renderLinks(links) {
+      const root = document.getElementById('links');
+      root.innerHTML = links.map(link => `
+        <div class="link-row">
+          <b>${escapeHtml(link.title)}</b>
+          <span>${escapeHtml(link.path || '')}</span>
+          <code>${escapeHtml(link.command || '')}</code>
+        </div>
+      `).join('');
+    }
+
+    function escapeHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = s || '';
+      return d.innerHTML;
+    }
+
+    restoreSagiForm();
+    loadUpdateStatus();
+    loadStatus();
+    loadSetupStatus();
+    loadCaptureStatus();
+    loadSagiStatus();
+    setInterval(loadStatus, 60000);
+    setInterval(loadSetupStatus, 60000);
+    setInterval(loadCaptureStatus, 30000);
+    setInterval(loadSagiStatus, 30000);
+    setInterval(loadUpdateStatus, 10 * 60 * 1000);
+  </script>
+</body>
+</html>

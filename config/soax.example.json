@@ -1,0 +1,8 @@
+{
+  "_comment": "本番ファイル `config/soax.json` のテンプレート。SOAX のpackage IDとパスワードを入れる。実ファイルは .gitignore で除外されている。代わりに環境変数 SOAX_PACKAGE / SOAX_PASSWORD で渡してもよい。",
+  "host": "proxy.soax.com",
+  "port": "5000",
+  "package": "package-XXXXXX",
+  "password": "REPLACE_WITH_SOAX_PASSWORD",
+  "user_template": "{package}-country-jp-isp-rakuten%20mobile%20network-sessionid-{sid}-sessionlength-3600-bindttl-30"
+}

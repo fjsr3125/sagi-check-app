@@ -1,0 +1,28 @@
+.PHONY: help ci check sagi-operator-install-app sagi-operator-smoke sagi-operator-release-package
+
+PYTHON ?= python3
+VERSION ?=
+BASE_URL ?=
+
+help:
+	@printf '%s\n' 'sagi-check-app commands'
+	@printf '%s\n' '  make ci                              CI用の軽量検証'
+	@printf '%s\n' '  make check                           Python構文チェック'
+	@printf '%s\n' '  make sagi-operator-install-app       distへ.appを作成'
+	@printf '%s\n' '  make sagi-operator-smoke             member-ready配布前チェック'
+	@printf '%s\n' '  make sagi-operator-release-package   DMG/ZIP/latest.jsonを生成'
+
+ci: check
+	$(PYTHON) -m py_compile scripts/install_sagi_operator_app.py scripts/sagi_operator_release_check.py scripts/package_sagi_operator_release.py ops_dashboard/update_check.py
+
+check:
+	$(PYTHON) -m compileall -q scripts ops_dashboard
+
+sagi-operator-install-app:
+	SAGI_OPERATOR_REQUIRE_INSTAGRAM_PACKAGE=$${SAGI_OPERATOR_REQUIRE_INSTAGRAM_PACKAGE:-0} SAGI_OPERATOR_REQUIRE_MEMBERS_CONFIG=$${SAGI_OPERATOR_REQUIRE_MEMBERS_CONFIG:-0} SAGI_OPERATOR_REQUIRE_SHEETS_BRIDGE_CONFIG=$${SAGI_OPERATOR_REQUIRE_SHEETS_BRIDGE_CONFIG:-0} SAGI_OPERATOR_REQUIRE_CAPTURE_TOOLS=$${SAGI_OPERATOR_REQUIRE_CAPTURE_TOOLS:-0} $(PYTHON) scripts/install_sagi_operator_app.py
+
+sagi-operator-smoke:
+	$(PYTHON) scripts/sagi_operator_release_check.py
+
+sagi-operator-release-package:
+	SAGI_OPERATOR_REQUIRE_INSTAGRAM_PACKAGE=1 SAGI_OPERATOR_REQUIRE_MEMBERS_CONFIG=1 SAGI_OPERATOR_REQUIRE_SHEETS_BRIDGE_CONFIG=1 SAGI_OPERATOR_REQUIRE_CAPTURE_TOOLS=1 $(PYTHON) scripts/package_sagi_operator_release.py $(if $(VERSION),--version "$(VERSION)",) $(if $(BASE_URL),--base-url "$(BASE_URL)",)

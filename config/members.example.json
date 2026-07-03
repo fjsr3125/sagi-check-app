@@ -1,0 +1,15 @@
+{
+  "_comment": "本番ファイル `config/members.json` のテンプレート。このファイルをコピーして値を埋めること。Slack webhook URL を含むので絶対にコミットしない。",
+  "management_sheet_id": "REPLACE_WITH_GOOGLE_SHEET_ID",
+  "slack_webhook_url": "https://hooks.slack.com/services/REPLACE/WITH/YOUR_WEBHOOK",
+  "error_webhook_url": "https://hooks.slack.com/services/REPLACE/WITH/ERROR_WEBHOOK",
+  "ranking_webhook_url": "https://hooks.slack.com/services/REPLACE/WITH/RANKING_WEBHOOK",
+  "hubspot_stale_webhook_url": "https://hooks.slack.com/services/REPLACE/WITH/HUBSPOT_STALE_WEBHOOK",
+  "members": [
+    {
+      "name": "山田 太郎",
+      "slack_user_id": "U0XXXXXXXXX",
+      "sheet_name_in_management": "山田"
+    }
+  ]
+}
