@@ -32,6 +32,9 @@ TOOL_FILES = [
     "frida-multiple-unpinning.js",
     "frida-server-17.9.1-android-arm64",
 ]
+CAPTURE_TOOLS_DIR_ENV = "SAGI_OPERATOR_CAPTURE_TOOLS_DIR"
+MEMBERS_CONFIG_ENV = "SAGI_OPERATOR_MEMBERS_CONFIG"
+UPDATE_CONFIG_ENV = "SAGI_OPERATOR_UPDATE_CONFIG"
 SECRET_PATTERNS = [
     "accounts.json",
     "hubspot_members.json",
@@ -216,7 +219,7 @@ def check_instagram_package_bundle() -> dict:
 
 
 def check_capture_tools_bundle() -> dict:
-    source_dir = ROOT / "tools"
+    source_dir = Path(os.environ.get(CAPTURE_TOOLS_DIR_ENV, str(ROOT / "tools"))).expanduser()
     bundled_dir = APP_ROOT / "tools"
     source_missing = [name for name in TOOL_FILES if not (source_dir / name).exists()]
     if source_missing:
@@ -226,10 +229,10 @@ def check_capture_tools_bundle() -> dict:
 
 
 def check_members_config_bundle() -> dict:
-    source = ROOT / "config" / "members.json"
+    source = Path(os.environ.get(MEMBERS_CONFIG_ENV, str(ROOT / "config" / "members.json"))).expanduser()
     bundled = APP_ROOT / "config" / "members.json"
     if not source.exists():
-        return {"ok": False, "missing": "config/members.json is missing in repo"}
+        return {"ok": False, "missing": f"members config is missing: {source}"}
     if not bundled.exists():
         return {"ok": False, "missing": "unari-src/config/members.json is not bundled"}
     source_size = source.stat().st_size
@@ -242,7 +245,7 @@ def check_members_config_bundle() -> dict:
 
 
 def check_update_bundle() -> dict:
-    source = ROOT / "config" / "sagi_operator_update.json"
+    source = Path(os.environ.get(UPDATE_CONFIG_ENV, str(ROOT / "config" / "sagi_operator_update.json"))).expanduser()
     bundled = APP_ROOT / "config" / "sagi_operator_update.json"
     version = APP_ROOT / "config" / "sagi_operator_version.json"
     missing = []
