@@ -795,18 +795,39 @@
     }
 
     async function postJob(endpoint, payload, target = 'capture') {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-      if (!data.ok) {
-        showJobInputError(data.error || '入力内容を確認してください。', target);
-        return;
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload)
+        });
+        const raw = await res.text();
+        let data = null;
+        try {
+          data = raw ? JSON.parse(raw) : {};
+        } catch (_) {
+          data = null;
+        }
+        if (!data || typeof data !== 'object') {
+          showJobTransportError(
+            `サーバーから正しい応答を受け取れませんでした。画面を更新してから、もう一度押してください。（HTTP ${res.status || '-'}）`,
+            target
+          );
+          return;
+        }
+        if (!data.ok) {
+          showJobInputError(data.error || '入力内容を確認してください。', target);
+          return;
+        }
+        if (!data.job || !data.job.id) {
+          showJobTransportError('ジョブ開始後の確認番号を受け取れませんでした。状態更新を押して、実行状況を確認してください。', target);
+          return;
+        }
+        renderJob(data.job, target);
+        watchJob(data.job.id, target);
+      } catch (e) {
+        showJobTransportError(`通信に失敗しました。Unari Sagi Operatorを開き直してから、もう一度押してください。${String(e.message || e)}`, target);
       }
-      renderJob(data.job, target);
-      watchJob(data.job.id, target);
     }
 
     function watchCaptureJob(jobId) {
@@ -1032,11 +1053,22 @@
           status: busy ? 'running' : 'failed',
           current_step: busy ? '待機中' : '入力確認',
           total_steps: 1,
-          current_step_index: 1
+          current_step_index: busy ? 1 : 0
         },
         displayMessage,
         els.progress
       );
+    }
+
+    function showJobTransportError(message, target = 'capture') {
+      const els = jobElements(target);
+      els.state.textContent = '通信エラー';
+      els.state.className = 'mini-pill red';
+      els.next.textContent = message;
+      els.next.className = 'next-action red';
+      jobLogCache[target] = message;
+      updateJobLogVisibility(els, target);
+      renderJobProgress({status: 'failed', current_step: '通信確認', total_steps: 1, current_step_index: 0}, message, els.progress);
     }
 
     async function copyVisibleJobLog(target = 'capture') {

@@ -1040,7 +1040,7 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                     page.on(
                         "console",
                         lambda msg, errors=errors: errors.append(msg.text)
-                        if msg.type == "error" and "status of 409" not in msg.text
+                        if msg.type == "error" and "status of 409" not in msg.text and "status of 500" not in msg.text
                         else None,
                     )
                     capture_calls = {"count": 0}
@@ -1168,6 +1168,14 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                             ),
                         ),
                     )
+                    page.route(
+                        "**/api/sagi/notify-test",
+                        lambda route: route.fulfill(
+                            status=500,
+                            content_type="text/plain",
+                            body="temporary server failure",
+                        ),
+                    )
                     page.goto(f"http://127.0.0.1:{port}/?operator=1", wait_until="domcontentloaded", timeout=30000)
                     page.wait_for_selector("text=Unari Sagi Operator", timeout=10000)
                     page.wait_for_selector("text=チェック用ログイン追加", timeout=10000)
@@ -1233,6 +1241,15 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                             };
                         }\"\"\"
                     )
+                    transport_surface = page.evaluate(
+                        \"\"\"async () => {
+                            await postJob('/api/sagi/notify-test', {requester: '藤巻'}, 'sagi');
+                            const state = document.querySelector('#sagiJobState')?.innerText || '';
+                            const next = document.querySelector('#sagiJobNextAction')?.innerText || '';
+                            const progress = document.querySelector('#sagiJobProgress')?.innerText || '';
+                            return {state, next, progress};
+                        }\"\"\"
+                    )
                     error_surface = page.evaluate(
                         \"\"\"() => {
                             const capacity = 'チェック対象は100件です。1つのチェック用ログインで1日50件まで確認できます。今回は2個必要ですが、今使えるのは1個です。あと1個、新しいInstagramアカウントでチェック用ログインを作ってください。';
@@ -1287,6 +1304,7 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                     metrics["afterRefreshCaptureText"] = after_refresh_capture
                     metrics["collapsedLogText"] = collapsed_log_text
                     metrics["busySurface"] = busy_surface
+                    metrics["transportSurface"] = transport_surface
                     metrics["errorSurface"] = error_surface
                     metrics["noHorizontalOverflow"] = metrics["scrollWidth"] <= metrics["clientWidth"] + 2
                     assert metrics["bodyLen"] > 500, (name, metrics)
@@ -1310,6 +1328,10 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                     assert "別の処理が実行中" in busy_surface["captureBusyState"], (name, busy_surface)
                     assert "初回セットアップ: まとめて実行" in busy_surface["captureBusyNext"], (name, busy_surface)
                     assert "終わるまで待って" in busy_surface["captureBusyNext"], (name, busy_surface)
+                    assert "通信エラー" in transport_surface["state"], (name, transport_surface)
+                    assert "正しい応答" in transport_surface["next"], (name, transport_surface)
+                    assert "HTTP 500" in transport_surface["next"], (name, transport_surface)
+                    assert "通信確認" in transport_surface["progress"], (name, transport_surface)
                     assert "チェック用ログイン不足" in error_surface["capacityState"], (name, error_surface)
                     assert "チェック対象は100件" in error_surface["capacityNext"], (name, error_surface)
                     assert "あと1個" in error_surface["capacityNext"], (name, error_surface)
