@@ -1038,6 +1038,109 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                         "console",
                         lambda msg, errors=errors: errors.append(msg.text) if msg.type == "error" else None,
                     )
+                    capture_calls = {"count": 0}
+
+                    def fulfill_json(route, payload):
+                        route.fulfill(
+                            status=200,
+                            content_type="application/json",
+                            body=json.dumps(payload, ensure_ascii=False),
+                        )
+
+                    def capture_status(route):
+                        capture_calls["count"] += 1
+                        if capture_calls["count"] > 1:
+                            time.sleep(0.8)
+                        fulfill_json(
+                            route,
+                            {
+                                "updated_at": "2026-07-05T12:00:00+09:00",
+                                "wifi": {"ok": True, "output": "Current Wi-Fi Network: iPhone"},
+                                "adb": {"ok": True, "output": "List of devices attached\\nemulator-5554 device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64"},
+                                "infra": {"ok": True, "output": "[OK] capture proxy設定 = 10.0.2.2:8080"},
+                                "sessions": {"ok": True, "output": "合計: 0件"},
+                                "captures": [],
+                                "session_files": [],
+                                "latest_job": None,
+                                "jobs": [],
+                                "setup_running": {
+                                    "id": "setup1",
+                                    "kind": "setup",
+                                    "label": "初回セットアップ: まとめて実行",
+                                    "status": "running",
+                                    "outcome": "running",
+                                    "current_step": "Android cmdline tools",
+                                    "current_step_index": 2,
+                                    "total_steps": 7,
+                                    "log": ["setup internal should not leak into capture panel"],
+                                },
+                            },
+                        )
+
+                    page.route(
+                        "**/api/status",
+                        lambda route: fulfill_json(
+                            route,
+                            {
+                                "generated_at": "2026-07-05T12:00:00+09:00",
+                                "overall": {
+                                    "level": "green",
+                                    "level_counts": {"red": 0, "yellow": 0, "green": 1},
+                                    "top_actions": ["検査中"],
+                                },
+                                "links": [],
+                            },
+                        ),
+                    )
+                    page.route(
+                        "**/api/update/status",
+                        lambda route: fulfill_json(
+                            route,
+                            {
+                                "ok": True,
+                                "enabled": True,
+                                "update_available": False,
+                                "current": {"version": "2026.07.05.9"},
+                                "latest": {"version": "2026.07.05.9", "download_url": ""},
+                            },
+                        ),
+                    )
+                    page.route(
+                        "**/api/setup/status",
+                        lambda route: fulfill_json(
+                            route,
+                            {
+                                "root": str(root),
+                                "android_home": str(root / "fake-sdk"),
+                                "checks": {
+                                    "python_runtime": {"ok": True, "summary": "Python環境は使えます"},
+                                    "adb": {"ok": False, "summary": "adb がありません", "next_action": "Android SDK platform-tools を入れてください。"},
+                                },
+                                "latest_job": None,
+                            },
+                        ),
+                    )
+                    page.route("**/api/capture/status", capture_status)
+                    page.route(
+                        "**/api/sagi/status**",
+                        lambda route: fulfill_json(
+                            route,
+                            {
+                                "ok": True,
+                                "input_count": 100,
+                                "needed_sessions": 2,
+                                "healthy_sessions": 1,
+                                "probe_sessions": None,
+                                "raw_count": {"ok": True, "output": "1"},
+                                "probe_count": {"ok": None, "output": "在庫確認ボタンでprobeします"},
+                                "sessions": {"ok": True, "output": "合計: 1件"},
+                                "sheets_bridge": {"ok": True, "output": "{\\"backend\\":\\"apps-script\\",\\"ok\\":true}"},
+                                "latest_inputs": [],
+                                "latest_results": [],
+                                "no_proxy": True,
+                            },
+                        ),
+                    )
                     page.goto(f"http://127.0.0.1:{port}/?operator=1", wait_until="domcontentloaded", timeout=30000)
                     page.wait_for_selector("text=Unari Sagi Operator", timeout=10000)
                     page.wait_for_selector("text=チェック用ログイン追加", timeout=10000)
@@ -1051,15 +1154,54 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                             hasSetup: document.body.innerText.includes('初回セットアップ'),
                             hasCapture: document.body.innerText.includes('チェック用ログイン追加'),
                             hasSagi: document.body.innerText.includes('詐欺チェック実行'),
-                            hasMainButton: document.body.innerText.includes('① まず件数を確認（本番はまだ走りません）')
+                            hasMainButton: document.body.innerText.includes('① まず件数を確認（本番はまだ走りません）'),
+                            loadingTextCount: (document.body.innerText.match(/状態取得中/g) || []).length,
+                            capturePanelText: document.querySelector('#capture-panel')?.innerText || '',
+                            captureStatusText: document.querySelector('#captureStatus')?.innerText || '',
+                            captureJobText: document.querySelector('#jobLog')?.innerText || '',
+                            captureProgressText: document.querySelector('#jobProgress')?.innerText || ''
                         })\"\"\"
                     )
+                    before_refresh_capture = page.locator("#captureStatus").inner_text()
+                    page.evaluate("() => { loadCaptureStatus(); }")
+                    page.wait_for_timeout(100)
+                    during_refresh_capture = page.locator("#captureStatus").inner_text()
+                    page.wait_for_timeout(1000)
+                    after_refresh_capture = page.locator("#captureStatus").inner_text()
+                    collapsed_log_text = page.evaluate(
+                        \"\"\"() => {
+                            renderJob({
+                                label: 'チェック用ログイン作成: sample',
+                                status: 'running',
+                                outcome: 'running',
+                                next_action: '実行中です。',
+                                current_step: 'チェック用ログイン verify',
+                                current_step_index: 1,
+                                total_steps: 1,
+                                commands: [{name: 'チェック用ログイン verify'}],
+                                log: ['line 1', 'line 2', 'line 3']
+                            }, 'capture');
+                            return document.querySelector('#jobLog')?.textContent || '';
+                        }\"\"\"
+                    )
                     metrics["errors"] = errors
+                    metrics["duringRefreshCaptureText"] = during_refresh_capture
+                    metrics["afterRefreshCaptureText"] = after_refresh_capture
+                    metrics["collapsedLogText"] = collapsed_log_text
                     metrics["noHorizontalOverflow"] = metrics["scrollWidth"] <= metrics["clientWidth"] + 2
                     assert metrics["bodyLen"] > 500, (name, metrics)
                     assert metrics["hasSetup"] and metrics["hasCapture"] and metrics["hasSagi"], (name, metrics)
                     assert metrics["hasMainButton"], (name, metrics)
                     assert metrics["noHorizontalOverflow"], (name, metrics)
+                    assert metrics["loadingTextCount"] == 0, (name, metrics)
+                    assert "初回セットアップ完了後に使えます" in metrics["capturePanelText"], (name, metrics)
+                    assert "Android cmdline tools" not in metrics["capturePanelText"], (name, metrics)
+                    assert "setup internal should not leak" not in metrics["capturePanelText"], (name, metrics)
+                    assert "初回セットアップ: まとめて実行 / 実行中" not in metrics["capturePanelText"], (name, metrics)
+                    assert "状態取得中" not in during_refresh_capture, (name, during_refresh_capture, before_refresh_capture)
+                    assert len(during_refresh_capture.strip()) > 20, (name, during_refresh_capture)
+                    assert after_refresh_capture.strip(), (name, after_refresh_capture)
+                    assert "ログは閉じています" in collapsed_log_text, (name, collapsed_log_text)
                     assert not errors, (name, errors)
                     viewport_results.append({"name": name, **metrics})
                     page.close()
