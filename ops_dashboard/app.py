@@ -97,6 +97,23 @@ def _int_field(data: dict, name: str, default: int, *, min_value: int, max_value
     return value, None
 
 
+def _bool_field(data: dict, name: str, default: bool, *, label: str) -> tuple[bool, str | None]:
+    raw = data.get(name, default)
+    if raw in ("", None):
+        raw = default
+    if isinstance(raw, bool):
+        return raw, None
+    if isinstance(raw, int) and raw in (0, 1):
+        return bool(raw), None
+    if isinstance(raw, str):
+        value = raw.strip().lower()
+        if value in {"1", "true", "yes", "on"}:
+            return True, None
+        if value in {"0", "false", "no", "off"}:
+            return False, None
+    return default, f"{label}はtrue/falseで指定してください。"
+
+
 @app.errorhandler(Exception)
 def handle_exception(exc: Exception):
     if not request.path.startswith("/api/"):
@@ -186,13 +203,22 @@ def api_capture_run_all():
     )
     if interval_error:
         return _job_error_response(interval_error)
+    confirm_tethering, bool_error = _bool_field(data, "confirm_tethering", False, label="iPhoneテザリング確認")
+    if bool_error:
+        return _job_error_response(bool_error)
+    skip_accounts_check, bool_error = _bool_field(data, "skip_accounts_check", True, label="登録リスト外アカウント作成")
+    if bool_error:
+        return _job_error_response(bool_error)
+    manual_login, bool_error = _bool_field(data, "manual_login", True, label="Android画面での手動ログイン")
+    if bool_error:
+        return _job_error_response(bool_error)
     job, error = start_capture_all_job(
         username=str(data.get("username", "")),
         password=str(data.get("password", "")),
-        confirm_tethering=bool(data.get("confirm_tethering")),
-        skip_accounts_check=bool(data.get("skip_accounts_check", True)),
+        confirm_tethering=confirm_tethering,
+        skip_accounts_check=skip_accounts_check,
         interval=interval,
-        manual_login=bool(data.get("manual_login", True)),
+        manual_login=manual_login,
     )
     if error:
         return _job_error_response(error)
@@ -292,10 +318,13 @@ def api_sagi_dryrun():
 @app.route("/api/sagi/check", methods=["POST"])
 def api_sagi_check():
     data = request.get_json(silent=True) or {}
+    resume, bool_error = _bool_field(data, "resume", False, label="途中から再開")
+    if bool_error:
+        return _job_error_response(bool_error)
     job, error = start_check_job(
         str(data.get("input_csv", "")),
         result_csv=str(data.get("result_csv", "")),
-        resume=bool(data.get("resume")),
+        resume=resume,
     )
     if error:
         return _job_error_response(error)
@@ -305,12 +334,15 @@ def api_sagi_check():
 @app.route("/api/sagi/writeback", methods=["POST"])
 def api_sagi_writeback():
     data = request.get_json(silent=True) or {}
+    dry_run, bool_error = _bool_field(data, "dry_run", False, label="書き戻し確認")
+    if bool_error:
+        return _job_error_response(bool_error)
     job, error = start_writeback_job(
         result_csv=str(data.get("result_csv", "")),
         sheet_id=str(data.get("sheet_id", "")),
         tab_name=str(data.get("tab_name", "")),
         requester=str(data.get("requester", "")),
-        dry_run=bool(data.get("dry_run")),
+        dry_run=dry_run,
     )
     if error:
         return _job_error_response(error)

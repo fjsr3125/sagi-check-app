@@ -1681,11 +1681,21 @@ assert "範囲で入力" in post_error(
     "/api/capture/run-all",
     {"username": "sample", "confirm_tethering": True, "interval": 10},
 )
+assert "true/false" in post_error(
+    "/api/capture/run-all",
+    {"username": "sample", "confirm_tethering": "maybe"},
+)
+assert "password" in post_error(
+    "/api/capture/run-all",
+    {"username": "sample", "confirm_tethering": True, "manual_login": "false"},
+)
 assert "CSVファイル" in post_error("/api/sagi/check", {})
+assert "true/false" in post_error("/api/sagi/check", {"resume": "maybe"})
 assert "続きから再開するには結果CSV" in post_error(
     "/api/sagi/check",
     {"input_csv": "ops_dashboard/check_jobs.py", "resume": True},
 )
+assert "true/false" in post_error("/api/sagi/writeback", {"dry_run": "maybe"})
 assert "Google Sheets URLとタブ名" in post_error(
     "/api/sagi/writeback",
     {"result_csv": "ops_dashboard/check_jobs.py"},
