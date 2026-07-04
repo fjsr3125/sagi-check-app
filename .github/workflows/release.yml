@@ -124,8 +124,8 @@ jobs:
             --version "$VERSION"
             --build "$build"
             --base-url "$EFFECTIVE_BASE_URL"
-            --retries 10
-            --retry-delay 6
+            --retries 30
+            --retry-delay 10
           )
           if [[ -z "$BASE_URL" ]]; then
             args+=(--check-assets --download-dmg)

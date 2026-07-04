@@ -1104,6 +1104,8 @@ def check_published_release_verifier_wiring() -> dict:
             "--build \"$build\"",
             "--check-assets",
             "--download-dmg",
+            "--retries 30",
+            "--retry-delay 10",
         ],
         "Makefile": [
             "sagi-operator-published-smoke",
