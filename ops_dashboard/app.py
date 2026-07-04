@@ -18,7 +18,7 @@ try:
         start_verify_job,
     )
     from .setup_jobs import collect_setup_status, start_setup_job
-    from .update_check import collect_update_status
+    from .update_check import collect_update_status, download_latest_update
     from .check_jobs import (
         collect_sagi_status,
         start_check_job,
@@ -40,7 +40,7 @@ except ImportError:
         start_verify_job,
     )
     from setup_jobs import collect_setup_status, start_setup_job
-    from update_check import collect_update_status
+    from update_check import collect_update_status, download_latest_update
     from check_jobs import (
         collect_sagi_status,
         start_check_job,
@@ -69,6 +69,11 @@ def api_status():
 @app.route("/api/update/status")
 def api_update_status():
     return jsonify(collect_update_status())
+
+
+@app.route("/api/update/download", methods=["POST"])
+def api_update_download():
+    return jsonify(download_latest_update(open_after=True))
 
 
 @app.route("/api/refresh", methods=["POST"])

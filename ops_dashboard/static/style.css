@@ -98,6 +98,7 @@ button.primary:hover {
 button.danger-primary {
   border-color: #991b1b;
   background: #991b1b;
+  color: #ffffff;
 }
 
 button.danger-primary:hover {
@@ -171,7 +172,27 @@ main {
   background: #f0fdf4;
 }
 
-.update-banner a {
+.update-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.update-banner a,
+.update-banner button.update-primary {
+  flex: 0 0 auto;
+  border-color: #1f2933;
+  background: #1f2933;
+  color: #ffffff;
+}
+
+.update-inline {
+  gap: 10px;
+}
+
+.update-inline button {
   flex: 0 0 auto;
   border-color: #1f2933;
   background: #1f2933;
@@ -426,6 +447,7 @@ main {
 .quick-buttons {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -599,11 +621,25 @@ summary {
   background: #f8fafc;
 }
 
+.progress-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
 .progress-copy {
   color: #334e68;
   font-size: 13px;
   font-weight: 700;
   line-height: 1.35;
+}
+
+.progress-percent {
+  flex: 0 0 auto;
+  color: #486581;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .progress-track {
@@ -619,6 +655,43 @@ summary {
   border-radius: inherit;
   background: #2563eb;
   transition: width 180ms ease-out;
+}
+
+.step-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.step-pills span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border: 1px solid #d9e2ec;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: #ffffff;
+  color: #62748e;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.step-pills span.done {
+  border-color: #bbf7d0;
+  background: #dcfce7;
+  color: #166534;
+}
+
+.step-pills span.active {
+  border-color: #93c5fd;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.step-pills span.failed {
+  border-color: #fecaca;
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .next-action {

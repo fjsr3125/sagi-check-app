@@ -163,18 +163,20 @@
           </label>
           <label>
             <span>タブ名（日付）</span>
-            <input id="sagiTabName" placeholder="7_2">
+            <input id="sagiTabName" placeholder="例: 7_4 / 7/4 でもOK">
           </label>
           <div class="field-helper" id="sagiTabHelper">
             <div>
-              <b>タブ名はシート下部の名前と完全一致</b>
-              <span>例: 今日のタブが「7_3」なら `7_3` と入力。スペースや全角数字が混ざると取込で止まります。</span>
+              <b>タブ名はコピペしてOK</b>
+              <span>7/4、7月4日、07_04 は自動で 7_4 に整えます。シート下部のタブ名だけ確認してください。</span>
             </div>
             <div class="quick-buttons">
               <button type="button" onclick="setSagiTabByOffset(0)">今日</button>
               <button type="button" onclick="setSagiTabByOffset(-1)">昨日</button>
+              <button type="button" onclick="setSagiTabByOffset(-2)">一昨日</button>
             </div>
           </div>
+          <div class="field-helper update-inline muted hidden" id="sagiUpdateHint"></div>
           <div class="field-helper muted" id="sagiSheetsBridgeHint">シート接続状態を確認中...</div>
           <label>
             <span>Slack通知に使うあなたの登録名（任意）</span>
@@ -241,8 +243,8 @@
         </div>
         <div id="sagiJobNextAction" class="next-action muted">ここに次に押すボタンを表示します。</div>
         <details class="log-details">
-          <summary>藤巻確認用ログを見る</summary>
-          <div class="log-tools"><button type="button" onclick="copyVisibleJobLog('sagi')">表示ログをコピー</button></div>
+          <summary>検証用ログ（必要時だけ）</summary>
+          <div class="log-tools"><button type="button" onclick="copyVisibleJobLog('sagi')">ログをコピー</button></div>
           <pre id="sagiJobLog" class="job-log">まだジョブはありません。</pre>
         </details>
       </div>
@@ -283,6 +285,7 @@
     let sagiJobId = null;
     let sagiJobTimer = null;
     let latestSagiStatus = null;
+    const jobLogCache = {setup: '', capture: '', sagi: ''};
     const sagiStorageFields = ['sagiSheetUrl', 'sagiSheetId', 'sagiTabName', 'sagiRequester', 'sagiInputCsv', 'sagiResultCsv'];
     const outcomeText = {
       running: '実行中',
@@ -315,32 +318,62 @@
 
     async function loadUpdateStatus() {
       const el = document.getElementById('updateStatus');
-      if (!el) return;
+      const sagiHint = document.getElementById('sagiUpdateHint');
+      if (!el && !sagiHint) return;
       try {
         const res = await fetch('/api/update/status');
         const data = await res.json();
-        if (!data.enabled) {
+        renderUpdateStatus(data, el, sagiHint);
+      } catch (e) {
+        const data = {ok: false, enabled: true, update_available: false, message: 'ネット接続を確認してください。作業は続けられます。'};
+        renderUpdateStatus(data, el, sagiHint);
+      }
+    }
+
+    function renderUpdateStatus(data, el, sagiHint) {
+      if (!data.enabled) {
+        if (el) {
           el.className = 'update-banner muted hidden';
           el.textContent = '';
-          return;
         }
-        const current = (data.current && data.current.version) || '-';
-        const latest = (data.latest && data.latest.version) || '-';
-        if (data.update_available) {
-          const download = data.latest && data.latest.download_url ? `
-            <a href="${escapeHtml(data.latest.download_url)}" target="_blank" rel="noopener">最新版を開く</a>
-          ` : '';
+        if (sagiHint) {
+          sagiHint.className = 'field-helper update-inline muted hidden';
+          sagiHint.textContent = '';
+        }
+        return;
+      }
+      const current = (data.current && data.current.version) || '-';
+      const latest = (data.latest && data.latest.version) || '-';
+      const downloadUrl = data.latest && data.latest.download_url ? data.latest.download_url : '';
+      const githubLink = downloadUrl ? `<a href="${escapeHtml(downloadUrl)}" target="_blank" rel="noopener">GitHubで開く</a>` : '';
+      if (data.update_available) {
+        if (el) {
           el.className = 'update-banner yellow';
           el.innerHTML = `
             <div>
               <b>新しい版があります</b>
-              <span>今の版: ${escapeHtml(current)} / 最新版: ${escapeHtml(latest)}。作業中なら終わってから、最新版DMGに入れ替えてください。</span>
+              <span>今の版: ${escapeHtml(current)} / 最新版: ${escapeHtml(latest)}。作業中なら終わってから入れ替えてください。</span>
             </div>
-            ${download}
+            <div class="update-actions">
+              <button type="button" class="update-primary" onclick="downloadLatestUpdate(this)">DMGをダウンロードして開く</button>
+              ${githubLink}
+            </div>
           `;
-          return;
         }
-        if (data.ok) {
+        if (sagiHint) {
+          sagiHint.className = 'field-helper update-inline warning-soft';
+          sagiHint.innerHTML = `
+            <div>
+              <b>最新版あり: ${escapeHtml(latest)}</b>
+              <span>詐欺チェック前に更新すると、修正済みの動作で実行できます。</span>
+            </div>
+            <button type="button" onclick="downloadLatestUpdate(this)">DMGを開く</button>
+          `;
+        }
+        return;
+      }
+      if (data.ok) {
+        if (el) {
           el.className = 'update-banner green';
           el.innerHTML = `
             <div>
@@ -348,8 +381,14 @@
               <span>今の版: ${escapeHtml(current)}</span>
             </div>
           `;
-          return;
         }
+        if (sagiHint) {
+          sagiHint.className = 'field-helper update-inline muted hidden';
+          sagiHint.textContent = '';
+        }
+        return;
+      }
+      if (el) {
         el.className = 'update-banner yellow';
         el.innerHTML = `
           <div>
@@ -357,14 +396,48 @@
             <span>${escapeHtml(data.message || 'ネット接続を確認してください。作業は続けられます。')}</span>
           </div>
         `;
+      }
+      if (sagiHint) {
+        sagiHint.className = 'field-helper update-inline muted';
+        sagiHint.innerHTML = '<b>更新確認は未完了</b><span>作業は続けられます。ネット接続後に状態更新してください。</span>';
+      }
+    }
+
+    async function downloadLatestUpdate(button) {
+      const original = button ? button.textContent : '';
+      if (button) {
+        button.disabled = true;
+        button.textContent = 'DMGを準備中...';
+      }
+      try {
+        const res = await fetch('/api/update/download', {method: 'POST'});
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.message || '更新に失敗しました');
+        if (button) button.textContent = 'DMGを開きました';
+        const el = document.getElementById('updateStatus');
+        if (el) {
+          el.className = 'update-banner green';
+          el.innerHTML = `
+            <div>
+              <b>最新版DMGを開きました</b>
+              <span>開いたDMGからApplicationsへ入れ替えてください。保存先: ${escapeHtml(data.path || '')}</span>
+            </div>
+          `;
+        }
       } catch (e) {
-        el.className = 'update-banner yellow';
-        el.innerHTML = `
-          <div>
-            <b>更新確認ができません</b>
-            <span>ネット接続を確認してください。作業は続けられます。</span>
-          </div>
-        `;
+        if (button) button.textContent = original || 'DMGを開く';
+        const el = document.getElementById('updateStatus');
+        if (el) {
+          el.className = 'update-banner yellow';
+          el.innerHTML = `
+            <div>
+              <b>最新版DMGを開けませんでした</b>
+              <span>${escapeHtml(String(e.message || e))}</span>
+            </div>
+          `;
+        }
+      } finally {
+        if (button) button.disabled = false;
       }
     }
 
@@ -580,6 +653,7 @@
     }
 
     async function extractSagiInput() {
+      normalizeSagiTabField();
       await postJob('/api/sagi/extract', {
         sheet_url: document.getElementById('sagiSheetUrl').value.trim(),
         sheet_id: document.getElementById('sagiSheetId').value.trim(),
@@ -589,6 +663,7 @@
     }
 
     async function runSagiSheetCheck() {
+      normalizeSagiTabField();
       const url = document.getElementById('sagiSheetUrl').value.trim();
       const sheetId = document.getElementById('sagiSheetId').value.trim() || extractSheetId(url);
       persistSagiForm();
@@ -647,6 +722,7 @@
     }
 
     async function writebackSagi(dryRun) {
+      normalizeSagiTabField();
       const sheetId = document.getElementById('sagiSheetId').value.trim() || extractSheetId(document.getElementById('sagiSheetUrl').value.trim());
       if (!document.getElementById('sagiResultCsv').value.trim()) {
         showJobInputError('先に本番チェックを完了するか、直近CSVから結果CSVを選んでください。', 'sagi');
@@ -729,7 +805,7 @@
             loadSagiStatus();
           }
         }
-      }, target === 'sagi' ? 3000 : 2500);
+      }, target === 'sagi' ? 4000 : 2500);
       if (target === 'setup') {
         setupJobTimer = timer;
       } else if (target === 'sagi') {
@@ -741,24 +817,30 @@
 
     function jobElements(target = 'capture') {
       if (target === 'setup') {
+        const log = document.getElementById('setupJobLog');
         return {
           state: document.getElementById('setupJobState'),
-          log: document.getElementById('setupJobLog'),
+          log,
+          details: log ? log.closest('details') : null,
           next: document.getElementById('setupJobNextAction'),
           progress: document.getElementById('setupJobProgress')
         };
       }
       if (target === 'sagi') {
+        const log = document.getElementById('sagiJobLog');
         return {
           state: document.getElementById('sagiJobState'),
-          log: document.getElementById('sagiJobLog'),
+          log,
+          details: log ? log.closest('details') : null,
           next: document.getElementById('sagiJobNextAction'),
           progress: document.getElementById('sagiJobProgress')
         };
       }
+      const log = document.getElementById('jobLog');
       return {
         state: document.getElementById('jobState'),
-        log: document.getElementById('jobLog'),
+        log,
+        details: log ? log.closest('details') : null,
         next: document.getElementById('jobNextAction'),
         progress: document.getElementById('jobProgress')
       };
@@ -772,7 +854,8 @@
       badge.textContent = `${job.label || 'job'} / ${outcomeText[outcome] || outcome}`;
       badge.className = `mini-pill ${level}`;
       const logText = (job.log || []).join('\n') || 'ログ待ち...';
-      els.log.textContent = tailLog(logText, 180);
+      jobLogCache[target] = logText;
+      updateJobLogVisibility(els, target);
       els.next.textContent = job.next_action || 'ログを確認してください。';
       els.next.className = `next-action ${level}`;
       renderJobProgress(job, logText, els.progress);
@@ -788,32 +871,97 @@
       return `... ${lines.length - maxLines}行省略 ...\n` + lines.slice(-maxLines).join('\n');
     }
 
+    function updateJobLogVisibility(els, target = 'capture') {
+      if (!els || !els.log) return;
+      const raw = jobLogCache[target] || els.log.textContent || 'まだジョブはありません。';
+      const lineCount = String(raw || '').split('\n').filter(Boolean).length;
+      if (els.details && !els.details.open) {
+        els.log.textContent = lineCount > 1
+          ? `ログは閉じています（${lineCount}行）。必要な時だけ開いて確認できます。`
+          : raw;
+        return;
+      }
+      const maxLines = target === 'sagi' ? 90 : 120;
+      els.log.textContent = tailLog(raw, maxLines);
+    }
+
+    function bindJobLogDetails() {
+      for (const target of ['setup', 'capture', 'sagi']) {
+        const els = jobElements(target);
+        if (!els.details) continue;
+        els.details.addEventListener('toggle', () => updateJobLogVisibility(els, target));
+      }
+    }
+
     function renderJobProgress(job, logText, el) {
       if (!el) return;
       const commandTotal = Number(job.total_steps || (job.commands || []).length || 1);
       const commandIndex = Number(job.current_step_index || (job.status === 'succeeded' ? commandTotal : 0));
       const itemProgress = findItemProgress(logText);
       let percent = commandTotal ? Math.round((Math.max(0, commandIndex - (job.status === 'running' ? 1 : 0)) / commandTotal) * 100) : 0;
-      let copy = job.current_step ? `いま: ${job.current_step}` : (job.status === 'succeeded' ? '完了しました' : '待機中');
+      let copy = job.current_step ? `いま: ${friendlyStepName(job.current_step)}` : (job.status === 'succeeded' ? '完了しました' : '待機中');
       if (itemProgress) {
         percent = Math.max(percent, Math.round((itemProgress.done / itemProgress.total) * 100));
         copy = `チェック中: ${itemProgress.done}/${itemProgress.total}件`;
       }
       if (job.status === 'succeeded') percent = 100;
       if (job.status === 'failed') percent = Math.max(percent, 8);
+      const clipped = Math.max(0, Math.min(percent, 100));
       el.innerHTML = `
-        <div class="progress-copy">${escapeHtml(copy)}</div>
-        <div class="progress-track"><span style="width:${Math.max(0, Math.min(percent, 100))}%"></span></div>
+        <div class="progress-top">
+          <div class="progress-copy">${escapeHtml(copy)}</div>
+          <div class="progress-percent">${clipped}%</div>
+        </div>
+        <div class="progress-track"><span style="width:${clipped}%"></span></div>
+        ${jobStepPills(job)}
       `;
+    }
+
+    function jobStepPills(job) {
+      const commands = Array.isArray(job.commands) ? job.commands : [];
+      if (!commands.length) return '';
+      const current = Number(job.current_step_index || 0);
+      const total = Number(job.total_steps || commands.length);
+      return `
+        <div class="step-pills">
+          ${commands.map((command, index) => {
+            const number = index + 1;
+            let cls = 'todo';
+            if (job.status === 'succeeded' || number < current) cls = 'done';
+            if (job.status === 'running' && number === current) cls = 'active';
+            if (job.status === 'failed' && number === Math.max(1, Math.min(current, total))) cls = 'failed';
+            return `<span class="${cls}">${number}. ${escapeHtml(friendlyStepName(command.name || '確認'))}</span>`;
+          }).join('')}
+        </div>
+      `;
+    }
+
+    function friendlyStepName(name) {
+      const text = String(name || '');
+      if (text.includes('シートから対象アカウント取込')) return '対象取込';
+      if (text.includes('対象アカウントをCSV化')) return 'CSV取込';
+      if (text.includes('強session必要本数')) return 'session確認';
+      if (text.includes('強session在庫')) return '在庫数';
+      if (text.includes('強session probe')) return '動作確認';
+      if (text.includes('強session一覧')) return '一覧';
+      if (text.includes('入力CSV確認')) return 'CSV確認';
+      if (text.includes('dry-run')) return '安全確認';
+      if (text.includes('本番')) return '本番チェック';
+      if (text.includes('書き戻し')) return '書き戻し';
+      if (text.includes('Slack')) return '通知';
+      if (text.includes('AVD') || text.includes('mitmdump') || text.includes('Frida')) return 'Android準備';
+      return text.replace(/\s*\(--no-proxy\)/g, '').slice(0, 18);
     }
 
     function findItemProgress(text) {
       const matches = [...String(text || '').matchAll(/\[(\d+)\/(\d+)\]/g)];
-      if (!matches.length) return null;
-      const last = matches[matches.length - 1];
+      const slashMatches = [...String(text || '').matchAll(/(?:チェック中|処理中|progress)[:\s]*(\d+)\s*\/\s*(\d+)/gi)];
+      const all = [...matches, ...slashMatches];
+      if (!all.length) return null;
+      const last = all[all.length - 1];
       const done = Number(last[1]);
       const total = Number(last[2]);
-      if (!done || !total) return null;
+      if (!Number.isFinite(done) || !Number.isFinite(total) || total <= 0) return null;
       return {done, total};
     }
 
@@ -823,21 +971,22 @@
       els.state.className = 'mini-pill red';
       els.next.textContent = message;
       els.next.className = 'next-action red';
-      els.log.textContent = message;
+      jobLogCache[target] = message;
+      updateJobLogVisibility(els, target);
       renderJobProgress({status: 'failed', current_step: '入力確認', total_steps: 1, current_step_index: 1}, message, els.progress);
     }
 
     async function copyVisibleJobLog(target = 'capture') {
       const els = jobElements(target);
-      const text = els.log ? els.log.textContent : '';
+      const text = jobLogCache[target] || (els.log ? els.log.textContent : '');
       if (!text) return;
       try {
         await navigator.clipboard.writeText(text);
-        els.next.textContent = '表示中のログをコピーしました。エラー相談時はこの内容を藤巻または管理者へ渡してください。';
+        els.next.textContent = 'ログをコピーしました。エラー相談時はこの内容を藤巻または管理者へ渡してください。';
         els.next.className = 'next-action yellow';
       } catch (e) {
         els.next.textContent = 'ログを自動コピーできませんでした。ログ欄を開いて、見えている範囲を選択して共有してください。';
-        els.next.className = 'next-action red';
+      els.next.className = 'next-action red';
       }
     }
 
@@ -876,7 +1025,7 @@
     function setSagiField(id, value) {
       const el = document.getElementById(id);
       if (!el || !value) return;
-      el.value = value;
+      el.value = id === 'sagiTabName' ? normalizeSagiTabName(value) : value;
       persistSagiForm();
     }
 
@@ -884,6 +1033,33 @@
       const d = new Date();
       d.setDate(d.getDate() + Number(offsetDays || 0));
       setSagiField('sagiTabName', `${d.getMonth() + 1}_${d.getDate()}`);
+    }
+
+    function normalizeSagiTabName(value) {
+      let text = String(value || '').trim();
+      if (!text) return '';
+      text = text
+        .replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+        .replace(/[＿／\/.\-ー－]/g, '_')
+        .replace(/[年月日\s]+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '');
+      const match = text.match(/^(?:\d{4}_)?0?(\d{1,2})_0?(\d{1,2})$/);
+      if (!match) return text;
+      const month = Number(match[1]);
+      const day = Number(match[2]);
+      if (month < 1 || month > 12 || day < 1 || day > 31) return text;
+      return `${month}_${day}`;
+    }
+
+    function normalizeSagiTabField() {
+      const el = document.getElementById('sagiTabName');
+      if (!el) return;
+      const normalized = normalizeSagiTabName(el.value);
+      if (normalized && normalized !== el.value) {
+        el.value = normalized;
+        persistSagiForm();
+      }
     }
 
     function persistSagiForm() {
@@ -901,6 +1077,11 @@
         if (saved) el.value = saved;
         el.addEventListener('input', persistSagiForm);
         el.addEventListener('change', persistSagiForm);
+      }
+      const tab = document.getElementById('sagiTabName');
+      if (tab) {
+        tab.addEventListener('blur', normalizeSagiTabField);
+        tab.addEventListener('paste', () => setTimeout(normalizeSagiTabField, 0));
       }
     }
 
@@ -1034,6 +1215,7 @@
     }
 
     restoreSagiForm();
+    bindJobLogDetails();
     loadUpdateStatus();
     loadStatus();
     loadSetupStatus();
