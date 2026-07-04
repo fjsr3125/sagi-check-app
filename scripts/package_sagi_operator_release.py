@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -57,24 +58,47 @@ def make_dmg(app_dir: Path, dmg_path: Path) -> None:
         shutil.copytree(app_dir, stage / app_dir.name, symlinks=True)
         env = os.environ.copy()
         env["COPYFILE_DISABLE"] = "1"
-        subprocess.run(
-            [
-                "hdiutil",
-                "create",
-                "-volname",
-                "Unari Sagi Operator",
-                "-srcfolder",
-                str(stage),
-                "-ov",
-                "-format",
-                "UDZO",
-                str(dmg_path),
-            ],
-            cwd=ROOT,
-            check=True,
-            timeout=600,
-            env=env,
-        )
+        tmp_dmg = stage.parent / f"{dmg_path.stem}.tmp.dmg"
+        cmd = [
+            "hdiutil",
+            "create",
+            "-volname",
+            "Unari Sagi Operator",
+            "-srcfolder",
+            str(stage),
+            "-ov",
+            "-format",
+            "UDZO",
+            str(tmp_dmg),
+        ]
+        last_error: subprocess.CalledProcessError | None = None
+        for attempt in range(1, 4):
+            tmp_dmg.unlink(missing_ok=True)
+            result = subprocess.run(
+                cmd,
+                cwd=ROOT,
+                timeout=600,
+                env=env,
+                text=True,
+                capture_output=True,
+            )
+            if result.returncode == 0:
+                tmp_dmg.replace(dmg_path)
+                return
+            last_error = subprocess.CalledProcessError(
+                result.returncode,
+                cmd,
+                output=result.stdout,
+                stderr=result.stderr,
+            )
+            print(result.stdout, end="")
+            print(result.stderr, end="")
+            if "Resource busy" not in f"{result.stdout}\n{result.stderr}":
+                raise last_error
+            print(f"hdiutil create failed with Resource busy; retrying ({attempt}/3)")
+            time.sleep(5 * attempt)
+        assert last_error is not None
+        raise last_error
 
 
 def asset_entry(path: Path, url: str) -> dict:
