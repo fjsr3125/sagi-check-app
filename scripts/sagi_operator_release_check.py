@@ -1033,7 +1033,7 @@ assert "詳細設定 / CSVで実行する場合" in app_html
 assert "詐欺チェックの進行状況" in app_html
 assert "sagiSheetsBridgeHint" in app_html
 assert "setSagiTabByOffset" in app_html
-assert "藤巻確認用ログを見る" in app_html
+assert "検証用ログ（必要時だけ）" in app_html
 assert "表示ログをコピー" in app_html
 assert "hasConnectedAndroid" in app_html
 assert "Android未接続" in app_html
