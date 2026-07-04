@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
+import shutil
+import subprocess
 import sys
 import time
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -68,6 +72,123 @@ def _probe_url(url: str, timeout: int) -> dict[str, Any]:
             }
     except urllib.error.URLError as e:
         return {"ok": False, "error": str(e)}
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _download(url: str, dest: Path, timeout: int) -> None:
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=timeout) as res, dest.open("wb") as f:
+        while True:
+            chunk = res.read(1024 * 1024)
+            if not chunk:
+                break
+            f.write(chunk)
+
+
+def _run(cmd: list[str], *, timeout: int) -> dict[str, Any]:
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    return {
+        "cmd": " ".join(cmd),
+        "ok": proc.returncode == 0,
+        "returncode": proc.returncode,
+        "stdout": (proc.stdout or "").strip(),
+        "stderr": (proc.stderr or "").strip(),
+    }
+
+
+def _mounted_volume(stdout: str) -> str:
+    for line in stdout.splitlines():
+        if "/Volumes/" in line:
+            return line[line.index("/Volumes/") :].strip()
+    return ""
+
+
+def _verify_downloaded_dmg(
+    *,
+    url: str,
+    name: str,
+    expected_sha256: str,
+    expected_version: str,
+    expected_build: str,
+    timeout: int,
+    download_dir: str,
+) -> tuple[list[str], dict[str, Any]]:
+    errors: list[str] = []
+    summary: dict[str, Any] = {"name": name, "url": url}
+    hdiutil = shutil.which("hdiutil")
+    codesign = shutil.which("codesign")
+    if not hdiutil:
+        return ["hdiutil command not found"], summary
+    if not codesign:
+        return ["codesign command not found"], summary
+
+    with tempfile.TemporaryDirectory(prefix="unari_published_dmg_", dir=download_dir or None) as td:
+        dmg_path = Path(td) / name
+        _download(url, dmg_path, timeout)
+        actual_sha256 = _sha256(dmg_path)
+        summary.update(
+            {
+                "path": str(dmg_path),
+                "size_bytes": dmg_path.stat().st_size,
+                "sha256": actual_sha256,
+            }
+        )
+        if actual_sha256.lower() != expected_sha256.lower():
+            errors.append(f"downloaded dmg sha256 mismatch: expected {expected_sha256}, got {actual_sha256}")
+            return errors, summary
+
+        verify = _run([hdiutil, "verify", str(dmg_path)], timeout=timeout)
+        summary["hdiutil_verify"] = {"ok": verify["ok"], "stderr_tail": verify["stderr"][-500:]}
+        if not verify["ok"]:
+            errors.append(f"hdiutil verify failed: {verify}")
+            return errors, summary
+
+        attach = _run([hdiutil, "attach", "-nobrowse", "-readonly", str(dmg_path)], timeout=timeout)
+        summary["hdiutil_attach"] = {"ok": attach["ok"], "stdout_tail": attach["stdout"][-500:]}
+        if not attach["ok"]:
+            errors.append(f"hdiutil attach failed: {attach}")
+            return errors, summary
+
+        mount = _mounted_volume(attach.get("stdout", ""))
+        summary["mount"] = mount
+        try:
+            if not mount:
+                errors.append("mounted volume path not found")
+                return errors, summary
+            app_path = Path(mount) / "Unari Sagi Operator.app"
+            if not app_path.exists():
+                errors.append("Unari Sagi Operator.app not found in downloaded DMG")
+                return errors, summary
+
+            sign = _run([codesign, "--verify", "--deep", "--strict", "--verbose=4", str(app_path)], timeout=timeout)
+            summary["codesign"] = {"ok": sign["ok"], "stderr_tail": sign["stderr"][-500:]}
+            if not sign["ok"]:
+                errors.append(f"codesign verify failed: {sign}")
+
+            version_path = app_path / "Contents" / "Resources" / "unari-src" / "config" / "sagi_operator_version.json"
+            if not version_path.exists():
+                errors.append("sagi_operator_version.json not found in downloaded DMG")
+            else:
+                data = json.loads(version_path.read_text(encoding="utf-8"))
+                bundled_version = str(data.get("version") or "")
+                bundled_build = str(data.get("build") or "")
+                summary["bundled_version"] = {"version": bundled_version, "build": bundled_build}
+                if expected_version and bundled_version != expected_version:
+                    errors.append(f"bundled version must be {expected_version}, got {bundled_version!r}")
+                if expected_build and bundled_build != expected_build:
+                    errors.append(f"bundled build must be {expected_build}, got {bundled_build!r}")
+        finally:
+            if mount:
+                detach = _run([hdiutil, "detach", mount], timeout=60)
+                summary["hdiutil_detach"] = {"ok": detach["ok"], "stderr_tail": detach["stderr"][-500:]}
+    return errors, summary
 
 
 def _asset_errors(
@@ -151,6 +272,25 @@ def verify_manifest(args: argparse.Namespace) -> dict[str, Any]:
     if download_url and dmg_url and download_url != dmg_url:
         errors.append("download_url must match assets.dmg.url")
 
+    downloaded_dmg: dict[str, Any] | None = None
+    if args.download_dmg:
+        dmg = assets.get("dmg") if isinstance(assets, dict) else {}
+        if not isinstance(dmg, dict):
+            errors.append("assets.dmg is required for --download-dmg")
+        elif not str(dmg.get("url") or "") or not str(dmg.get("name") or "") or not str(dmg.get("sha256") or ""):
+            errors.append("assets.dmg.url, assets.dmg.name, and assets.dmg.sha256 are required for --download-dmg")
+        else:
+            dmg_errors, downloaded_dmg = _verify_downloaded_dmg(
+                url=str(dmg.get("url") or ""),
+                name=str(dmg.get("name") or f"UnariSagiOperator-{version}.dmg"),
+                expected_sha256=str(dmg.get("sha256") or ""),
+                expected_version=version,
+                expected_build=build,
+                timeout=args.download_timeout,
+                download_dir=args.download_dir,
+            )
+            errors.extend(dmg_errors)
+
     summary = {
         "latest_url": args.latest_url,
         "version": version,
@@ -158,6 +298,8 @@ def verify_manifest(args: argparse.Namespace) -> dict[str, Any]:
         "download_url": download_url,
         "assets": asset_summaries,
     }
+    if downloaded_dmg is not None:
+        summary["downloaded_dmg"] = downloaded_dmg
     if errors:
         raise ReleaseVerificationError(errors, summary=summary)
     return summary
@@ -170,7 +312,10 @@ def main() -> int:
     parser.add_argument("--build", default="")
     parser.add_argument("--base-url", default="")
     parser.add_argument("--check-assets", action="store_true", help="HEAD/range-check DMG and ZIP URLs")
+    parser.add_argument("--download-dmg", action="store_true", help="Download the published DMG and verify SHA256, disk image, signature, and bundled version")
+    parser.add_argument("--download-dir", default="")
     parser.add_argument("--timeout", type=int, default=15)
+    parser.add_argument("--download-timeout", type=int, default=600)
     parser.add_argument("--retries", type=int, default=1)
     parser.add_argument("--retry-delay", type=float, default=5.0)
     parser.add_argument("--json", action="store_true")

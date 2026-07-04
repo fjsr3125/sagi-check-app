@@ -6,6 +6,7 @@ BUILD ?=
 BASE_URL ?=
 PUBLISHED_BASE_URL ?= https://github.com/fjsr3125/sagi-check-app/releases/latest/download
 PUBLISHED_LATEST_URL ?= $(PUBLISHED_BASE_URL)/latest.json
+PUBLISHED_DOWNLOAD_DMG ?= 0
 
 help:
 	@printf '%s\n' 'sagi-check-app commands'
@@ -36,4 +37,4 @@ sagi-operator-release-package:
 	SAGI_OPERATOR_REQUIRE_INSTAGRAM_PACKAGE=1 SAGI_OPERATOR_REQUIRE_MEMBERS_CONFIG=1 SAGI_OPERATOR_REQUIRE_SHEETS_BRIDGE_CONFIG=1 SAGI_OPERATOR_REQUIRE_CAPTURE_TOOLS=1 $(PYTHON) scripts/package_sagi_operator_release.py $(if $(VERSION),--version "$(VERSION)",) $(if $(BASE_URL),--base-url "$(BASE_URL)",)
 
 sagi-operator-published-smoke:
-	$(PYTHON) scripts/verify_published_release.py --latest-url "$(PUBLISHED_LATEST_URL)" --base-url "$(PUBLISHED_BASE_URL)" --check-assets $(if $(VERSION),--version "$(VERSION)",) $(if $(BUILD),--build "$(BUILD)",)
+	$(PYTHON) scripts/verify_published_release.py --latest-url "$(PUBLISHED_LATEST_URL)" --base-url "$(PUBLISHED_BASE_URL)" --check-assets $(if $(filter 1 true yes,$(PUBLISHED_DOWNLOAD_DMG)),--download-dmg,) $(if $(VERSION),--version "$(VERSION)",) $(if $(BUILD),--build "$(BUILD)",)

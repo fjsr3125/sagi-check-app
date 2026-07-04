@@ -128,7 +128,7 @@ jobs:
             --retry-delay 6
           )
           if [[ -z "$BASE_URL" ]]; then
-            args+=(--check-assets)
+            args+=(--check-assets --download-dmg)
           fi
           python3 scripts/verify_published_release.py "${args[@]}"
 

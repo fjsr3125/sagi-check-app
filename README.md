@@ -48,6 +48,12 @@ make sagi-operator-smoke PYTHON=venv/bin/python
 make sagi-operator-published-smoke PYTHON=venv/bin/python VERSION=YYYY.MM.DD.N BUILD=<commit>
 ```
 
+公開DMGを実際にダウンロードして、SHA256・DMG検証・署名・内蔵versionまで確認する場合:
+
+```bash
+make sagi-operator-published-smoke PYTHON=venv/bin/python VERSION=YYYY.MM.DD.N BUILD=<commit> PUBLISHED_DOWNLOAD_DMG=1
+```
+
 ## member-ready release
 
 ローカルで必要ファイルを用意してから実行する。
@@ -76,6 +82,7 @@ make sagi-operator-release-package BASE_URL=https://example.com/unari-sagi-opera
 
 workflowはDMG/ZIP/latest.jsonをGitHub Releaseへアップロードする。アプリ内の更新確認は `latest.json` を見て「最新版あり/なし」を表示する。
 workflowはアップロード後に公開URLの `latest.json` を読み直し、今回の `version` / `build` / DMG・ZIP URL と一致することも確認する。
+GitHub Release配布の場合は、公開DMGを実際にダウンロードしてSHA256、DMG検証、署名、内蔵versionも確認する。
 workflow完了後はGitHub Actions Summaryに、今回公開したバージョン、DMG/ZIP URL、SHA256、`latest.json` の中身が出る。
 
 通常pushとメンバー配布は別。

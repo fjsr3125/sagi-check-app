@@ -1103,20 +1103,26 @@ def check_published_release_verifier_wiring() -> dict:
             "--version \"$VERSION\"",
             "--build \"$build\"",
             "--check-assets",
+            "--download-dmg",
         ],
         "Makefile": [
             "sagi-operator-published-smoke",
             "scripts/verify_published_release.py",
             "PUBLISHED_LATEST_URL",
+            "PUBLISHED_DOWNLOAD_DMG",
         ],
         "README.md": [
             "sagi-operator-published-smoke",
             "公開URLの `latest.json` を読み直し",
+            "公開DMGを実際にダウンロード",
         ],
         "scripts/verify_published_release.py": [
             "def verify_manifest",
             "download_url must match assets.dmg.url",
             "--check-assets",
+            "--download-dmg",
+            '[hdiutil, "verify"',
+            "sagi_operator_version.json",
             "--retries",
         ],
     }
