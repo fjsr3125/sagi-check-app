@@ -7,6 +7,7 @@ import socket
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
+from werkzeug.exceptions import HTTPException
 
 try:
     from .collectors import build_snapshot, load_latest_or_build, write_snapshot
@@ -81,6 +82,18 @@ def _runtime_version() -> dict:
 def _job_error_response(error: str):
     status = 409 if error.startswith(BUSY_ERROR_PREFIX) else 400
     return jsonify({"ok": False, "error": error}), status
+
+
+@app.errorhandler(Exception)
+def handle_exception(exc: Exception):
+    if not request.path.startswith("/api/"):
+        raise exc
+    if isinstance(exc, HTTPException):
+        status = exc.code or 500
+        message = exc.description if status < 500 else "状態取得に失敗しました。画面を更新してから、もう一度試してください。"
+        return jsonify({"ok": False, "error": message}), status
+    app.logger.exception("api error")
+    return jsonify({"ok": False, "error": "状態取得に失敗しました。画面を更新してから、もう一度試してください。"}), 500
 
 
 @app.route("/")

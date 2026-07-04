@@ -883,8 +883,9 @@ server.serve_forever()
 
 def check_flask_api() -> dict:
     code = """
-from ops_dashboard.app import app
-client = app.test_client()
+import ops_dashboard.app as dashboard_app
+
+client = dashboard_app.app.test_client()
 paths = ['/api/runtime/status', '/api/setup/status', '/api/sagi/status', '/api/capture/status', '/api/update/status']
 for path in paths:
     res = client.get(path)
@@ -913,6 +914,30 @@ assert 'simple-status-row' in html
 assert 'updateStatus' in html
 assert '新しい版があります' in html
 assert 'capturePassword' not in html
+
+old_collect_capture_status = dashboard_app.collect_capture_status
+
+def broken_capture_status():
+    raise RuntimeError("internal boom should not leak")
+
+dashboard_app.collect_capture_status = broken_capture_status
+try:
+    res = client.get('/api/capture/status')
+    body = res.get_data(as_text=True)
+    assert res.status_code == 500, (res.status_code, body)
+    assert res.is_json, body
+    data = res.get_json()
+    assert data["ok"] is False, data
+    assert "状態取得に失敗" in data["error"], data
+    assert "internal boom" not in body, body
+finally:
+    dashboard_app.collect_capture_status = old_collect_capture_status
+
+res = client.get('/api/no-such-route')
+body = res.get_data(as_text=True)
+assert res.status_code == 404, (res.status_code, body)
+assert res.is_json, body
+assert res.get_json()["ok"] is False, body
 print('api ok')
 """
     python = str(ROOT / "venv" / "bin" / "python") if (ROOT / "venv" / "bin" / "python").exists() else sys.executable
@@ -1218,6 +1243,17 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                         ),
                     )
                     page.route(
+                        "**/api/sagi/dryrun",
+                        lambda route: route.fulfill(
+                            status=500,
+                            content_type="application/json",
+                            body=json.dumps(
+                                {"ok": False, "error": "状態取得に失敗しました。画面を更新してから、もう一度試してください。"},
+                                ensure_ascii=False,
+                            ),
+                        ),
+                    )
+                    page.route(
                         "**/api/sagi/notify-test",
                         lambda route: route.fulfill(
                             status=500,
@@ -1309,6 +1345,15 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                             return {state, next, progress};
                         }\"\"\"
                     )
+                    json_server_error_surface = page.evaluate(
+                        \"\"\"async () => {
+                            await postJob('/api/sagi/dryrun', {input_csv: 'logs/sagi_operator_input_20260705_120000.csv'}, 'sagi');
+                            const state = document.querySelector('#sagiJobState')?.innerText || '';
+                            const next = document.querySelector('#sagiJobNextAction')?.innerText || '';
+                            const progress = document.querySelector('#sagiJobProgress')?.innerText || '';
+                            return {state, next, progress};
+                        }\"\"\"
+                    )
                     poll_surface = page.evaluate(
                         \"\"\"async () => {
                             await postJob('/api/capture/verify', {username: 'sample'}, 'capture');
@@ -1374,6 +1419,7 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                     metrics["collapsedLogText"] = collapsed_log_text
                     metrics["busySurface"] = busy_surface
                     metrics["transportSurface"] = transport_surface
+                    metrics["jsonServerErrorSurface"] = json_server_error_surface
                     metrics["pollSurface"] = poll_surface
                     metrics["errorSurface"] = error_surface
                     metrics["statusFailureSurface"] = {
@@ -1406,6 +1452,10 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                     assert "正しい応答" in transport_surface["next"], (name, transport_surface)
                     assert "HTTP 500" in transport_surface["next"], (name, transport_surface)
                     assert "通信確認" in transport_surface["progress"], (name, transport_surface)
+                    assert "通信エラー" in json_server_error_surface["state"], (name, json_server_error_surface)
+                    assert "入力確認" not in json_server_error_surface["state"], (name, json_server_error_surface)
+                    assert "状態取得に失敗" in json_server_error_surface["next"], (name, json_server_error_surface)
+                    assert "通信確認" in json_server_error_surface["progress"], (name, json_server_error_surface)
                     assert "通信エラー" in poll_surface["state"], (name, poll_surface)
                     assert "実行状況を取得" in poll_surface["next"], (name, poll_surface)
                     assert "HTTP 500" in poll_surface["next"], (name, poll_surface)

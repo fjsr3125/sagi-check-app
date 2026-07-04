@@ -843,6 +843,13 @@
           );
           return;
         }
+        if (!res.ok && res.status >= 500) {
+          showJobTransportError(
+            data.error || `サーバー側で処理に失敗しました。画面を更新してから、もう一度押してください。（HTTP ${res.status || '-'}）`,
+            target
+          );
+          return;
+        }
         if (!data.ok) {
           showJobInputError(data.error || '入力内容を確認してください。', target);
           return;
