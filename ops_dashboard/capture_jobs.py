@@ -175,8 +175,12 @@ def _append_related_log_tails(job_id: str, log_snapshot: list[str]) -> None:
 
 
 def collect_capture_status() -> dict[str, Any]:
-    jobs = list_jobs(limit=5)
+    jobs = list_jobs(limit=5, kind="capture")
     latest_job = jobs[0] if jobs else None
+    setup_running = next(
+        (job for job in list_jobs(limit=8, kind="setup") if job.get("status") == "running"),
+        None,
+    )
     return {
         "updated_at": _now(),
         "wifi": _quick_run(["networksetup", "-getairportnetwork", "en0"], timeout=6),
@@ -188,13 +192,21 @@ def collect_capture_status() -> dict[str, Any]:
         "session_files": _latest_files(ROOT / "sessions", "*.json"),
         "latest_job": latest_job,
         "jobs": jobs,
+        "setup_running": setup_running,
     }
 
 
-def _new_job(label: str, commands: list[dict[str, Any]], *, success_next_action: str = "") -> dict[str, Any]:
+def _new_job(
+    label: str,
+    commands: list[dict[str, Any]],
+    *,
+    success_next_action: str = "",
+    kind: str = "capture",
+) -> dict[str, Any]:
     job_id = uuid.uuid4().hex[:12]
     job = {
         "id": job_id,
+        "kind": kind,
         "label": label,
         "status": "running",
         "started_at": _now(),
@@ -228,9 +240,26 @@ def _classify_result(returncode: int, log: list[str], *, success_next_action: st
             "next_action": success_next_action or "完了しました。必要なら結果とシート書き戻しを確認してください。",
         }
     if "NEEDS_SUPPLEMENT" in joined:
+        capacity_match = re.search(
+            r"NEEDS_SUPPLEMENT\s+target_count=(\d+)\s+needed_sessions=(\d+)\s+healthy_sessions=(\d+)\s+missing_sessions=(\d+)",
+            joined,
+        )
+        if capacity_match:
+            target_count, needed, healthy, missing = capacity_match.groups()
+            message = (
+                f"チェック対象は{target_count}件です。"
+                "1つのチェック用ログインで1日50件まで確認できます。"
+                f"今回は{needed}個必要ですが、今使えるのは{healthy}個です。"
+                f"あと{missing}個、新しいInstagramアカウントでチェック用ログインを作ってください。"
+            )
+        else:
+            message = (
+                "チェック用ログインが足りません。新しいInstagramアカウントでチェック用ログインを作ってから、"
+                "同じシートで「① まず件数を確認」を押し直してください。"
+            )
         return {
-            "outcome": "needs_supplement",
-            "next_action": "今の強session本数では対象件数を処理できません。強session補充で追加sessionを作成してください。結果CSVはまだ作られていないので、追加後は同じシートで「① まず件数を確認」を押し直してください。",
+            "outcome": "capacity_shortage",
+            "next_action": message,
         }
     if returncode == 5 and (
         "LoginRequired" in joined
@@ -240,8 +269,8 @@ def _classify_result(returncode: int, log: list[str], *, success_next_action: st
         or "usernameinfo endpoint unavailable" in joined
     ):
         return {
-            "outcome": "needs_supplement",
-            "next_action": "使用中の強sessionがLoginRequired/Challenge系で使えなくなりました。自動再ログインはしません。強session補充で別のチェック用アカウントを追加し、入力CSVと結果CSVを残したまま「続きから再開」を押してください。",
+            "outcome": "login_required",
+            "next_action": "Instagram側で再ログインが必要になりました。結果CSVは消さずに残っています。別のInstagramアカウントで「チェック用ログインを1つ作る」を実行し、完了後に「途中から再開」を押してください。",
         }
     if returncode == 5 and (
         "ローテーション先なし" in joined
@@ -251,8 +280,8 @@ def _classify_result(returncode: int, log: list[str], *, success_next_action: st
         or "50件" in joined
     ):
         return {
-            "outcome": "needs_supplement",
-            "next_action": "50件上限または使える強session不足で止まりました。強session補充で追加sessionを作成し、入力CSVと結果CSVを残したまま「続きから再開」を押してください。",
+            "outcome": "capacity_shortage",
+            "next_action": "1つのチェック用ログインで1日50件まで確認できます。今使えるチェック用ログインでは足りません。新しいInstagramアカウントでチェック用ログインを作り、完了後に「途中から再開」を押してください。",
         }
     if (
         returncode == 5
@@ -261,8 +290,8 @@ def _classify_result(returncode: int, log: list[str], *, success_next_action: st
         or "strong session" in joined.lower() and "not found" in joined.lower()
     ):
         return {
-            "outcome": "needs_supplement",
-            "next_action": "強sessionが足りません。強session補充で追加sessionを作成してください。結果CSVがある場合は「途中から再開」、まだ無い場合は「① まず件数を確認」を押し直してください。",
+            "outcome": "capacity_shortage",
+            "next_action": "チェック用ログインが足りません。新しいInstagramアカウントでチェック用ログインを作ってください。結果CSVがある場合は「途中から再開」、まだ無い場合は「① まず件数を確認」を押し直してください。",
         }
     if (
         returncode == 4
@@ -271,7 +300,7 @@ def _classify_result(returncode: int, log: list[str], *, success_next_action: st
     ):
         return {
             "outcome": "manual_needed",
-            "next_action": "username/passwordの入力ミス、またはInstagram側の認証拒否です。自動再試行は止めています。入力内容と対象アカウントを確認してから、必要な場合だけ「sessionを1本作る」をやり直してください。",
+            "next_action": "username/passwordの入力ミス、またはInstagram側の認証拒否です。自動再試行は止めています。入力内容と対象アカウントを確認してから、必要な場合だけ「チェック用ログインを1つ作る」をやり直してください。",
         }
     if (
         "manual_login_required" in joined
@@ -283,12 +312,12 @@ def _classify_result(returncode: int, log: list[str], *, success_next_action: st
     ):
         return {
             "outcome": "manual_needed",
-            "next_action": "Android画面でInstagramへ手動ログイン、またはメール確認/2FAを完了してください。時間切れになった場合は、認証完了後に「sessionを1本作る」を再実行してください。認証コードやパスワードは録画に映さないでください。",
+            "next_action": "Android画面でInstagramへ手動ログイン、またはメール確認/2FAを完了してください。時間切れになった場合は、認証完了後に「チェック用ログインを1つ作る」を再実行してください。認証コードやパスワードは録画に映さないでください。",
         }
     if "FileNotFoundError" in joined and "config/accounts.json" in joined:
         return {
             "outcome": "failed",
-            "next_action": "ローカル設定ファイルが無い状態で止まりました。最新版では自動作成されます。最新版DMGへ入れ替えて、強session補充の「取り込みだけやり直す」または「sessionを1本作る」を再実行してください。",
+            "next_action": "ローカル設定ファイルが無い状態で止まりました。最新版では自動作成されます。最新版DMGへ入れ替えて、「取り込みだけやり直す」または「チェック用ログインを1つ作る」を再実行してください。",
         }
     if (
         "Google Sheets連携設定がありません" in joined
@@ -346,17 +375,17 @@ def _classify_result(returncode: int, log: list[str], *, success_next_action: st
     if network_or_dns_failed and tls_or_pinning_failed:
         return {
             "outcome": "failed",
-            "next_action": "Instagramへの通信がDNS/502で失敗し、その後TLS/pinningでも失敗しています。iPhoneテザリング/Wi-Fiをつなぎ直し、初回セットアップの「通信用設定」を押してから、強session補充の「sessionを1本作る」を再実行してください。",
+            "next_action": "Instagramへの通信がDNS/502で失敗し、その後TLS/pinningでも失敗しています。iPhoneテザリング/Wi-Fiをつなぎ直し、初回セットアップの「通信用設定」を押してから、「チェック用ログインを1つ作る」を再実行してください。",
         }
     if network_or_dns_failed:
         return {
             "outcome": "failed",
-            "next_action": "Mac側のネットワーク/DNSがInstagram接続先を解決できていません。iPhoneテザリング/Wi-Fiをつなぎ直してから、初回セットアップの「通信用設定」→強session補充の「sessionを1本作る」をやり直してください。",
+            "next_action": "Mac側のネットワーク/DNSがInstagram接続先を解決できていません。iPhoneテザリング/Wi-Fiをつなぎ直してから、初回セットアップの「通信用設定」→「チェック用ログインを1つ作る」をやり直してください。",
         }
     if tls_or_pinning_failed:
         return {
             "outcome": "failed",
-            "next_action": "通信補助設定または証明書設定が効いていません。初回セットアップの「通信用設定」を押し直してから、強session補充の「sessionを1本作る」を再実行してください。繰り返す場合はログ末尾を藤巻へ渡してください。",
+            "next_action": "通信補助設定または証明書設定が効いていません。初回セットアップの「通信用設定」を押し直してから、「チェック用ログインを1つ作る」を再実行してください。繰り返す場合はログ末尾を藤巻へ渡してください。",
         }
     if (
         returncode == 3
@@ -379,7 +408,7 @@ def _classify_result(returncode: int, log: list[str], *, success_next_action: st
         ):
             return {
                 "outcome": "manual_needed",
-                "next_action": "Instagramのログイン通信が拒否されています。ログイン連打は止めて、OKを押し、初回セットアップの「通信用設定」→強session補充の「sessionを1本作る」をやり直してください。繰り返す場合は別のチェック用アカウントかテザリング回線に切り替えてください。",
+                "next_action": "Instagramのログイン通信が拒否されています。ログイン連打は止めて、OKを押し、初回セットアップの「通信用設定」→「チェック用ログインを1つ作る」をやり直してください。繰り返す場合は別のチェック用アカウントかテザリング回線に切り替えてください。",
             }
         return {
             "outcome": "manual_needed",
@@ -411,7 +440,7 @@ def _classify_result(returncode: int, log: list[str], *, success_next_action: st
     ):
         return {
             "outcome": "failed",
-            "next_action": "通信補助設定が未完了です。初回セットアップタブで「通信用設定」を押してから、強session補充をやり直してください。",
+            "next_action": "通信補助設定が未完了です。初回セットアップタブで「通信用設定」を押してから、チェック用ログイン作成をやり直してください。",
         }
     if (
         "address already in use" in joined.lower()
@@ -420,8 +449,8 @@ def _classify_result(returncode: int, log: list[str], *, success_next_action: st
         or "port 8080" in joined and "別ユーザー" in joined
     ):
         return {
-            "outcome": "failed",
-            "next_action": "Macの8080番を別アプリまたは別ユーザーのUnari Sagi Operatorが使っています。別ユーザー側を終了するか、Macを再起動してから、通信用設定をやり直してください。",
+            "outcome": "port_conflict",
+            "next_action": "通信準備で止まりました。Macを再起動してから、Unari Sagi Operatorを開き直してください。",
         }
     if (
         "mitmproxy CA が生成されていません" in joined
@@ -440,7 +469,7 @@ def _classify_result(returncode: int, log: list[str], *, success_next_action: st
     ):
         return {
             "outcome": "failed",
-            "next_action": "Android画面の通信先が古いか、Mac内の受け口に届いていません。初回セットアップの「通信用設定」を押し直してから、強session補充の「sessionを1本作る」を再実行してください。",
+            "next_action": "Android画面の通信先が古いか、Mac内の受け口に届いていません。初回セットアップの「通信用設定」を押し直してから、「チェック用ログインを1つ作る」を再実行してください。",
         }
     if (
         "AVD boot タイムアウト" in joined
@@ -567,6 +596,7 @@ def start_infra_job() -> tuple[dict[str, Any] | None, str | None]:
     return _new_job(
         "AVD/mitmdump/Frida 準備",
         [{"name": "AVD/mitmdump/Fridaを起動確認", "cmd": ["bash", "scripts/ensure_capture_infra.sh"], "timeout": 420}],
+        kind="capture",
     ), None
 
 
@@ -608,7 +638,7 @@ def start_capture_all_job(
     env = {} if manual_login else {"SHIN_CAPTURE_PASSWORD": password}
     step_name = "AVDで手動ログイン→capture→import→verify" if manual_login else "AVDでIGログイン→capture→import→verify"
     return _new_job(
-        f"強session作成: {username}",
+        f"チェック用ログイン作成: {username}",
         [
             {"name": "AVD/mitmdump/Fridaを起動確認", "cmd": ["bash", "scripts/ensure_capture_infra.sh"], "timeout": 420},
             {
@@ -618,6 +648,7 @@ def start_capture_all_job(
                 "timeout": 1800,
             },
         ],
+        kind="capture",
     ), None
 
 
@@ -633,19 +664,20 @@ def start_import_latest_job(username: str) -> tuple[dict[str, Any] | None, str |
         return None, "captures/*.json がありません"
     capture_path = latest[0]["path"]
     return _new_job(
-        f"最新capture import: {username}",
+        f"最新capture取り込み: {username}",
         [
             {
-                "name": "最新captureをsessionへ取り込み",
+                "name": "最新captureをチェック用ログインへ取り込み",
                 "cmd": [PYTHON, "-u", "scripts/import_real_session.py", "--capture", capture_path, "--username", username, "--no-verify"],
                 "timeout": 180,
             },
             {
-                "name": "強session verify",
+                "name": "チェック用ログイン verify",
                 "cmd": [PYTHON, "-u", "scripts/verify_captured_session.py", "--username", username, "--no-proxy"],
                 "timeout": 120,
             },
         ],
+        kind="capture",
     ), None
 
 
@@ -657,8 +689,9 @@ def start_verify_job(username: str) -> tuple[dict[str, Any] | None, str | None]:
     if not username:
         return None, "username を入力してください"
     return _new_job(
-        f"強session verify: {username}",
-        [{"name": "強session verify", "cmd": [PYTHON, "-u", "scripts/verify_captured_session.py", "--username", username, "--no-proxy"], "timeout": 120}],
+        f"チェック用ログイン verify: {username}",
+        [{"name": "チェック用ログイン verify", "cmd": [PYTHON, "-u", "scripts/verify_captured_session.py", "--username", username, "--no-proxy"], "timeout": 120}],
+        kind="capture",
     ), None
 
 
@@ -670,7 +703,31 @@ def get_job(job_id: str) -> dict[str, Any] | None:
         return dict(job)
 
 
-def list_jobs(limit: int = 10) -> list[dict[str, Any]]:
+def _job_matches_kind(job: dict[str, Any], kind: str | None) -> bool:
+    if not kind:
+        return True
+    if job.get("kind") == kind:
+        return True
+    label = str(job.get("label", ""))
+    if kind == "setup":
+        return label.startswith("初回セットアップ")
+    if kind == "sagi":
+        return label.startswith("詐欺チェック")
+    if kind == "capture":
+        return (
+            label.startswith("強session")
+            or label.startswith("チェック用ログイン")
+            or label.startswith("AVD/mitmdump/Frida")
+            or label.startswith("最新capture")
+        )
+    return False
+
+
+def list_jobs(limit: int = 10, *, kind: str | None = None) -> list[dict[str, Any]]:
     with _LOCK:
-        jobs = sorted(_JOBS.values(), key=lambda j: j.get("started_at") or "", reverse=True)
+        jobs = sorted(
+            (job for job in _JOBS.values() if _job_matches_kind(job, kind)),
+            key=lambda j: j.get("started_at") or "",
+            reverse=True,
+        )
         return [dict(job) for job in jobs[:limit]]

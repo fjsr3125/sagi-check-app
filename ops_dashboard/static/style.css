@@ -513,6 +513,41 @@ main {
   min-width: 0;
 }
 
+.capture-status.is-refreshing {
+  opacity: 0.96;
+}
+
+.simple-status-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.status-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 1px solid #d9e2ec;
+  border-left-width: 5px;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.status-line b {
+  color: #102a43;
+  font-size: 12px;
+}
+
+.status-line span {
+  color: #334e68;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: right;
+}
+
 .status-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -581,6 +616,10 @@ main {
 
 details {
   margin-top: 12px;
+}
+
+.diagnostic-details {
+  margin-top: 10px;
 }
 
 summary {

@@ -87,19 +87,19 @@ if result_path:
 if checked:
     print(f"チェック済み: {{len(checked)}}件スキップ")
 print(f"対象アカウント: {{target_count}}件")
-print("1強sessionの上限: 50件")
-print(f"必要強session: {{needed}}本")
+print("1つのチェック用ログインの上限: 50件")
+print(f"必要なチェック用ログイン: {{needed}}個")
 if target_count == 0:
     print("対象アカウントが0件です。シートURL、タブ名、A列のアカウントIDを確認してください。")
     raise SystemExit(4)
 healthy = count_healthy(probe=True)
-print(f"probe OK強session: {{healthy}}本")
+print(f"今使えるチェック用ログイン: {{healthy}}個")
 if healthy < needed:
     missing = needed - healthy
     print(f"NEEDS_SUPPLEMENT target_count={{target_count}} needed_sessions={{needed}} healthy_sessions={{healthy}} missing_sessions={{missing}}")
-    print("追加sessionが必要です。強session補充で不足分以上のsessionを作ってから、同じシートで「① まず件数を確認」を押し直してください。")
+    print("チェック用ログインが足りません。新しいInstagramアカウントで不足分以上のチェック用ログインを作ってから、同じシートで「① まず件数を確認」を押し直してください。")
     raise SystemExit(5)
-print("強session必要本数チェックOK")
+print("チェック用ログイン必要数チェックOK")
 """.strip()
 
 
@@ -187,6 +187,7 @@ def start_extract_input_job(
     return _new_job(
         "詐欺チェック: 入力取込",
         [{"name": "対象アカウントをCSV化", "cmd": cmd, "timeout": 180}],
+        kind="sagi",
     ), None
 
 
@@ -219,7 +220,8 @@ def start_sheet_check_job(
             {"name": "シートから対象アカウント取込", "cmd": extract_cmd, "timeout": 180},
             {"name": "強session必要本数チェック", "cmd": [PYTHON, "-c", _capacity_check_code(input_csv)], "timeout": 900},
         ],
-        success_next_action="対象件数と必要session本数を確認しました。在庫が足りていれば「② 本番チェックを実行」を押してください。sessionが足りない場合は、強session補充で追加sessionを作ってから「① まず件数を確認」を押し直してください。",
+        success_next_action="対象件数と必要なチェック用ログイン数を確認しました。足りていれば「② 本番チェックを実行」を押してください。足りない場合は、新しいInstagramアカウントでチェック用ログインを作ってから「① まず件数を確認」を押し直してください。",
+        kind="sagi",
     ), None
 
 
@@ -227,16 +229,16 @@ def start_inventory_job(input_csv: str = "") -> tuple[dict[str, Any] | None, str
     if error := _busy_error():
         return None, error
     commands = [
-        {"name": "強session在庫数", "cmd": [PYTHON, "scripts/strong_session_pool.py", "--count"], "timeout": 60},
-        {"name": "強session probe数", "cmd": [PYTHON, "scripts/strong_session_pool.py", "--count-probe"], "timeout": 180},
-        {"name": "強session一覧", "cmd": [PYTHON, "scripts/strong_session_pool.py", "--list"], "timeout": 60},
+        {"name": "チェック用ログイン数", "cmd": [PYTHON, "scripts/strong_session_pool.py", "--count"], "timeout": 60},
+        {"name": "チェック用ログイン動作確認", "cmd": [PYTHON, "scripts/strong_session_pool.py", "--count-probe"], "timeout": 180},
+        {"name": "チェック用ログイン一覧", "cmd": [PYTHON, "scripts/strong_session_pool.py", "--list"], "timeout": 60},
     ]
     if input_csv:
         path, error = _validate_rel_path(input_csv)
         if error:
             return None, error
         commands.insert(0, {"name": "入力CSV確認", "cmd": [PYTHON, "-c", f"import csv; print(sum(1 for r in csv.DictReader(open({str(path)!r})) if r.get('account_id')))"], "timeout": 20})
-    return _new_job("詐欺チェック: 在庫確認", commands), None
+    return _new_job("詐欺チェック: 在庫確認", commands, kind="sagi"), None
 
 
 def start_dryrun_job(input_csv: str) -> tuple[dict[str, Any] | None, str | None]:
@@ -248,6 +250,7 @@ def start_dryrun_job(input_csv: str) -> tuple[dict[str, Any] | None, str | None]
     return _new_job(
         "詐欺チェック: dry-run",
         [{"name": "api_warning_check dry-run (--no-proxy)", "cmd": [PYTHON, "-u", "scripts/api_warning_check.py", "--input", _rel(path), "--dry-run", "--no-proxy"], "timeout": 900}],
+        kind="sagi",
     ), None
 
 
@@ -282,6 +285,7 @@ def start_check_job(
             {"name": "api_warning_check 本番 (--no-proxy)", "cmd": cmd, "timeout": 7200},
         ],
         success_next_action="本番チェックが完了しました。次に「③ 書き戻さずに件数だけ確認（安全）」を押してください。Slack通知名が空でもシート反映だけなら進められます。",
+        kind="sagi",
     ), None
 
 
@@ -323,6 +327,7 @@ def start_writeback_job(
             if dry_run
             else "シート反映が完了しました。Slack通知名を入れていた場合は通知も送信されています。"
         ),
+        kind="sagi",
     ), None
 
 
@@ -341,4 +346,5 @@ def start_notify_test_job(requester: str) -> tuple[dict[str, Any] | None, str | 
     return _new_job(
         "詐欺チェック: Slack通知テスト",
         [{"name": "Slack通知テスト", "cmd": [PYTHON, "-u", "-c", code], "timeout": 60}],
+        kind="sagi",
     ), None

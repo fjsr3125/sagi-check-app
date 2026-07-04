@@ -373,7 +373,10 @@ ARCHIVE_TEXT_CHECKS = {
         "SheetsBridgeError",
         "NEEDS_SUPPLEMENT",
         "続きから再開",
-        "LoginRequired/Challenge",
+        "チェック用ログインを1つ作る",
+        "capacity_shortage",
+        "login_required",
+        "port_conflict",
     ],
     "ops_dashboard/check_jobs.py": [
         "start_sheet_check_job",
@@ -396,9 +399,9 @@ ARCHIVE_TEXT_CHECKS = {
         "step-pills",
         "① まず件数を確認（本番はまだ走りません）",
         "② 本番チェックを実行",
-        "途中から再開（追加session後）",
+        "途中から再開（ログイン追加後）",
         "直近CSV",
-        "追加session",
+        "チェック用ログイン追加",
         "詳細設定 / CSVで実行する場合",
         "Google Sheets接続設定",
         "書き戻さずに件数だけ確認",
@@ -678,12 +681,14 @@ assert 'Google Sheets接続設定' in html
 assert 'Android画面のInstagram' in html
 assert '① まず件数を確認（本番はまだ走りません）' in html
 assert '② 本番チェックを実行' in html
-assert '途中から再開（追加session後）' in html
+assert '途中から再開（ログイン追加後）' in html
 assert '直近CSV' in html
-assert '追加session' in html
+assert 'チェック用ログイン追加' in html
 assert '詳細設定 / CSVで実行する場合' in html
 assert '書き戻さずに件数だけ確認' in html
 assert '表示ログをコピー' in html
+assert 'showLoadingIfFirst' in html
+assert 'simple-status-row' in html
 assert 'updateStatus' in html
 assert '新しい版があります' in html
 assert 'capturePassword' not in html
@@ -894,18 +899,61 @@ def check_launcher_stale_server_restart() -> dict:
 def check_capture_diagnostics() -> dict:
     code = """
 from pathlib import Path
-from ops_dashboard.capture_jobs import _classify_result
+from ops_dashboard import capture_jobs
 from scripts import shin_capture_auto
+
+_classify_result = capture_jobs._classify_result
+
+old_quick_run = capture_jobs._quick_run
+old_latest_files = capture_jobs._latest_files
+with capture_jobs._LOCK:
+    capture_jobs._JOBS.clear()
+    capture_jobs._JOBS["setup1"] = {
+        "id": "setup1",
+        "kind": "setup",
+        "label": "初回セットアップ: まとめて実行",
+        "status": "running",
+        "started_at": "2026-07-04T20:00:00+09:00",
+    }
+    capture_jobs._JOBS["capture1"] = {
+        "id": "capture1",
+        "kind": "capture",
+        "label": "チェック用ログイン作成: sample",
+        "status": "failed",
+        "started_at": "2026-07-04T19:00:00+09:00",
+    }
+try:
+    capture_jobs._quick_run = lambda *args, **kwargs: {"ok": True, "code": 0, "output": ""}
+    capture_jobs._latest_files = lambda *args, **kwargs: []
+    status = capture_jobs.collect_capture_status()
+    assert status["latest_job"]["id"] == "capture1"
+    assert status["setup_running"]["id"] == "setup1"
+finally:
+    capture_jobs._quick_run = old_quick_run
+    capture_jobs._latest_files = old_latest_files
+    with capture_jobs._LOCK:
+        capture_jobs._JOBS.clear()
 
 frida = _classify_result(1, ["[FAIL] frida-server 入れ直し失敗 (AVD capture設定をやり直してください)"])
 assert "通信用設定" in frida["next_action"]
 
 port = _classify_result(1, ["[Errno 48] address already in use"])
-assert "8080" in port["next_action"]
+assert port["outcome"] == "port_conflict"
+assert "Macを再起動" in port["next_action"]
 
 other_user_port = _classify_result(1, ["[NG] port 8080 は別ユーザー(tesuto)のプロセスが使用中です。"])
-assert "別ユーザー" in other_user_port["next_action"]
+assert other_user_port["outcome"] == "port_conflict"
 assert "Macを再起動" in other_user_port["next_action"]
+
+capacity = _classify_result(5, ["NEEDS_SUPPLEMENT target_count=100 needed_sessions=2 healthy_sessions=1 missing_sessions=1"])
+assert capacity["outcome"] == "capacity_shortage"
+assert "チェック対象は100件" in capacity["next_action"]
+assert "あと1個" in capacity["next_action"]
+
+login_required = _classify_result(5, ["LoginRequired: relogin needed"])
+assert login_required["outcome"] == "login_required"
+assert "Instagram側で再ログイン" in login_required["next_action"]
+assert "チェック用ログインを1つ作る" in login_required["next_action"]
 
 missing_ca = _classify_result(1, ["✗ /Users/tesuto/.mitmproxy/mitmproxy-ca-cert.pem が無い。一度 mitmdump を起動してCAを生成してください"])
 assert "通信の証明書" in missing_ca["next_action"]
@@ -937,7 +985,7 @@ assert "録画" in challenge["next_action"]
 
 manual_timeout = _classify_result(3, ["manual_login_timeout:challenge_or_2fa:check your email"])
 assert manual_timeout["outcome"] == "manual_needed"
-assert "認証完了後に「sessionを1本作る」を再実行" in manual_timeout["next_action"]
+assert "認証完了後に「チェック用ログインを1つ作る」を再実行" in manual_timeout["next_action"]
 
 manual_mode = _classify_result(3, ["manual_login_mode: AVD画面でInstagramへ手動ログインしてください"])
 assert manual_mode["outcome"] == "manual_needed"
@@ -1027,7 +1075,7 @@ app_html = Path("ops_dashboard/templates/index.html").read_text(encoding="utf-8"
 assert "Android画面のInstagram" in app_html
 assert "① まず件数を確認（本番はまだ走りません）" in app_html
 assert "② 本番チェックを実行" in app_html
-assert "途中から再開（追加session後）" in app_html
+assert "途中から再開（ログイン追加後）" in app_html
 assert "直近CSV" in app_html
 assert "詳細設定 / CSVで実行する場合" in app_html
 assert "詐欺チェックの進行状況" in app_html
@@ -1036,7 +1084,10 @@ assert "setSagiTabByOffset" in app_html
 assert "検証用ログ（必要時だけ）" in app_html
 assert "表示ログをコピー" in app_html
 assert "hasConnectedAndroid" in app_html
-assert "Android未接続" in app_html
+assert "未接続" in app_html
+assert "チェック用ログイン追加" in app_html
+assert "showLoadingIfFirst" in app_html
+assert "simple-status-row" in app_html
 assert "capturePassword" not in app_html
 
 ensure = Path("scripts/ensure_capture_infra.sh").read_text(encoding="utf-8")

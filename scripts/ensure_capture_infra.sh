@@ -389,7 +389,7 @@ if [[ -n "$listener_info" ]]; then
             port_blocked=1
             echo "[NG] port $PROXY_PORT は別ユーザー($listener_user)のプロセスが使用中です。"
             printf '%s\n' "$listener_info" | sed -n '1,3p'
-            echo "     別ユーザー側のUnari Sagi Operator/mitmdumpを終了するか、Macを再起動してから再実行してください。"
+            echo "     Macを再起動してから、Unari Sagi Operatorを開き直してください。"
         elif [[ "$current_args" == *"ig_mitm_capture.py"* || "$current_args" == *"$MITM_SCRIPT"* ]]; then
             mitm_up=1
             mitm_owned=1
@@ -397,7 +397,7 @@ if [[ -n "$listener_info" ]]; then
             port_blocked=1
             echo "[NG] port $PROXY_PORT は別プロセスが使用中です。mitmdumpを起動できません。"
             printf '%s\n' "$listener_info" | sed -n '1,3p'
-            echo "     使っていないアプリを終了するか、Macを再起動してから再実行してください。"
+            echo "     Macを再起動してから、Unari Sagi Operatorを開き直してください。"
         fi
     fi
     if [[ $mitm_owned -eq 1 ]]; then

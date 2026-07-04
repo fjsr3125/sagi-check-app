@@ -212,7 +212,7 @@ def collect_setup_status() -> dict[str, Any]:
         "sheets_auth": _sheets_auth_status(sheets_info),
         "members_config": _exists_status(members_json, "members.json", "Slack通知を使う場合は管理者が設定してください。dry-runだけなら不要です。"),
     }
-    setup_jobs = [job for job in list_jobs(limit=8) if str(job.get("label", "")).startswith("初回セットアップ")]
+    setup_jobs = list_jobs(limit=8, kind="setup")
     latest_job = setup_jobs[0] if setup_jobs else None
     ready = all(item["ok"] for item in checks.values())
     return {
@@ -243,16 +243,19 @@ def start_setup_job(action: str) -> tuple[dict[str, Any] | None, str | None]:
             [
                 {"name": "必要ライブラリをインストール", "cmd": [py, "-m", "pip", "install", "-r", "requirements.txt"], "timeout": 1800},
             ],
+            kind="setup",
         ), None
     if action == "android-tools":
         return _new_job(
             "初回セットアップ: Android cmdline tools",
             [{"name": "Android cmdline toolsを導入", "cmd": [PYTHON, "-u", "scripts/install_android_cmdline_tools.py"], "timeout": 1800}],
+            kind="setup",
         ), None
     if action == "avd":
         return _new_job(
             "初回セットアップ: Android画面作成",
             [{"name": "Android画面を作成", "cmd": ["bash", "scripts/setup_ig_capture_avd.sh", "setup"], "timeout": 2400}],
+            kind="setup",
         ), None
     if action == "device":
         return _new_job(
@@ -262,6 +265,7 @@ def start_setup_job(action: str) -> tuple[dict[str, Any] | None, str | None]:
                 {"name": "Android側へ通信用設定を入れる", "cmd": ["bash", "scripts/setup_ig_capture_device.sh", "all"], "timeout": 900},
                 {"name": "通信準備の最終確認", "cmd": ["bash", "scripts/ensure_capture_infra.sh"], "timeout": 600},
             ],
+            kind="setup",
         ), None
     if action == "instagram":
         return _new_job(
@@ -269,6 +273,7 @@ def start_setup_job(action: str) -> tuple[dict[str, Any] | None, str | None]:
             [
                 {"name": "Instagram APK/APKM/XAPKをAVDへインストール", "cmd": ["bash", "scripts/install_instagram_apk.sh"], "timeout": 600},
             ],
+            kind="setup",
         ), None
     if action == "google-auth":
         info = _sheets_bridge_info()
@@ -276,6 +281,7 @@ def start_setup_job(action: str) -> tuple[dict[str, Any] | None, str | None]:
             return _new_job(
                 "初回セットアップ: Google Sheets接続確認",
                 [{"name": "Google Sheets連携方式を確認", "cmd": [PYTHON, "scripts/sheets_bridge.py", "--status"], "timeout": 30}],
+                kind="setup",
             ), None
         if not info:
             return None, "Google Sheets接続状態を確認できません。アプリを開き直して、直らなければログを管理者へ渡してください。"
@@ -288,6 +294,7 @@ def start_setup_job(action: str) -> tuple[dict[str, Any] | None, str | None]:
             [
                 {"name": "ブラウザでGoogle Sheets認証", "cmd": [PYTHON, "-u", "scripts/sheets_auth.py"], "timeout": 660, "env": {"SHEETS_AUTH_CONSOLE": "0"}},
             ],
+            kind="setup",
         ), None
     if action == "all":
         py = str(ROOT / "venv" / "bin" / "python") if (ROOT / "venv" / "bin" / "python").exists() else sys.executable
@@ -302,5 +309,6 @@ def start_setup_job(action: str) -> tuple[dict[str, Any] | None, str | None]:
                 {"name": "AVD/mitmdump/Fridaを最終確認", "cmd": ["bash", "scripts/ensure_capture_infra.sh"], "timeout": 600},
                 {"name": "Instagram APK/APKM/XAPKをAVDへインストール", "cmd": ["bash", "scripts/install_instagram_apk.sh"], "timeout": 600},
             ],
+            kind="setup",
         ), None
     return None, "action は venv / android-tools / avd / device / instagram / google-auth / all のいずれかを指定してください"

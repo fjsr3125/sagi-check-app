@@ -17,7 +17,7 @@
     </div>
     <div class="actions">
       <a href="#setup-panel">初回セットアップ</a>
-      <a href="#capture-panel">強session補充</a>
+      <a href="#capture-panel">チェック用ログイン追加</a>
       <a href="#sagi-panel">詐欺チェック</a>
     </div>
   </header>
@@ -79,8 +79,8 @@
     <section class="capture-panel" id="capture-panel">
       <div class="capture-head">
         <div>
-          <h2>強session補充</h2>
-          <p>チェックに使うsessionをこのMacに1本作ります。パスワードや認証コードはAndroid画面だけに入力します。</p>
+          <h2>チェック用ログイン追加</h2>
+          <p>チェックに使うInstagramログインをこのMacに1つ作ります。パスワードや認証コードはAndroid画面だけに入力します。</p>
         </div>
         <button onclick="loadCaptureStatus()">状態更新</button>
       </div>
@@ -92,14 +92,14 @@
           </label>
           <div class="warning-box">
             <b>パスワード・認証コードはこの画面に入れません</b>
-            <span>「sessionを1本作る」を押した後に開くAndroid画面のInstagramへ手入力します。</span>
+            <span>「チェック用ログインを1つ作る」を押した後に開くAndroid画面のInstagramへ手入力します。</span>
           </div>
           <ol class="operator-steps">
             <li>usernameを入れる</li>
             <li>iPhoneテザリングに接続済みにチェックする</li>
-            <li>「sessionを1本作る」を押す</li>
+            <li>「チェック用ログインを1つ作る」を押す</li>
             <li>Android画面のInstagramでパスワード・2FA・メール認証を手入力する</li>
-            <li>完了後に必要なら「作ったsessionを確認」を押す</li>
+            <li>完了後に必要なら「作ったログインを確認」を押す</li>
           </ol>
           <label>
             <span>連続作成するときの待ち時間（秒）</span>
@@ -114,14 +114,14 @@
             <span>登録リストに無いアカウントでも作る（通常はこのままでOK）</span>
           </label>
           <div class="capture-actions">
-            <button class="primary" onclick="startCaptureAll()">sessionを1本作る（推奨）</button>
+            <button class="primary" onclick="startCaptureAll()">チェック用ログインを1つ作る（推奨）</button>
           </div>
           <details class="advanced-fields">
             <summary>うまくいかない時の手動操作</summary>
             <div class="capture-actions">
               <button onclick="startCaptureInfra()">Android準備だけやり直す</button>
               <button onclick="importLatestCapture()">取り込みだけやり直す</button>
-              <button onclick="verifyCaptureSession()">作ったsessionを確認</button>
+              <button onclick="verifyCaptureSession()">作ったログインを確認</button>
             </div>
           </details>
           <p class="muted">実行中はこの画面を閉じてもジョブは継続するが、ログを見るには開いたままが安全。</p>
@@ -132,7 +132,7 @@
       </div>
       <div class="job-box">
         <div class="job-head">
-          <h3>強session補充の進行状況</h3>
+          <h3>チェック用ログイン追加の進行状況</h3>
           <span id="jobState" class="mini-pill unknown">未実行</span>
         </div>
         <div id="jobProgress" class="job-progress-card">
@@ -190,12 +190,12 @@
           </div>
           <div class="hint-box">
             <b>チェック開始はURLとタブ名だけでOK</b>
-            <span>①は本番を走らせません。対象件数と必要session本数だけ確認します。②は本番チェックなので、確認画面で件数を見てから実行します。途中で止まった時は強session補充で追加sessionを作ってから「途中から再開」を押します。</span>
+            <span>①は本番を走らせません。対象件数と必要なチェック用ログイン数だけ確認します。②は本番チェックなので、確認画面で件数を見てから実行します。途中で止まった時はチェック用ログインを追加してから「途中から再開」を押します。</span>
           </div>
           <div class="capture-actions sagi-main-actions">
             <button class="primary" onclick="runSagiSheetCheck()">① まず件数を確認（本番はまだ走りません）</button>
             <button class="danger-primary" onclick="runSagiCheck()">② 本番チェックを実行</button>
-            <button onclick="resumeSagiCheck()">途中から再開（追加session後）</button>
+            <button onclick="resumeSagiCheck()">途中から再開（ログイン追加後）</button>
             <button onclick="writebackSagi(true)">③ 書き戻さずに件数だけ確認（安全）</button>
             <button onclick="writebackSagi(false)">④ シートのD列に反映（確定）</button>
           </div>
@@ -221,7 +221,7 @@
             <div class="csv-picker" id="sagiCsvPicker"></div>
             <div class="capture-actions">
               <button onclick="extractSagiInput()">CSV取込だけ実行</button>
-              <button onclick="checkSagiInventory()">session在庫を確認</button>
+              <button onclick="checkSagiInventory()">ログイン数を確認</button>
               <button onclick="dryrunSagi()">安全確認だけ実行</button>
               <button onclick="notifySagiTest()">通知テスト</button>
             </div>
@@ -290,11 +290,29 @@
     const outcomeText = {
       running: '実行中',
       succeeded: '完了',
-      needs_supplement: 'session補充が必要',
+      needs_supplement: 'チェック用ログインが必要',
+      capacity_shortage: 'チェック用ログイン不足',
+      login_required: '再ログインが必要',
+      port_conflict: '通信準備エラー',
       manual_needed: '手動操作が必要',
       failed: '失敗',
       unknown: '不明'
     };
+
+    function showLoadingIfFirst(el, message = '状態取得中...') {
+      if (!el) return;
+      if (el.dataset.loaded === '1') {
+        el.classList.add('is-refreshing');
+        return;
+      }
+      el.innerHTML = `<div class="muted">${escapeHtml(message)}</div>`;
+    }
+
+    function markLoaded(el) {
+      if (!el) return;
+      el.dataset.loaded = '1';
+      el.classList.remove('is-refreshing');
+    }
 
     async function loadStatus() {
       const res = await fetch('/api/status');
@@ -450,7 +468,7 @@
 
     async function loadSetupStatus() {
       const el = document.getElementById('setupStatus');
-      el.innerHTML = '<div class="muted">状態取得中...</div>';
+      showLoadingIfFirst(el);
       try {
         const res = await fetch('/api/setup/status');
         const data = await res.json();
@@ -465,12 +483,14 @@
           <div class="status-grid">${cards}</div>
           <div class="muted setup-meta">root: ${escapeHtml(data.root || '')}<br>ANDROID_HOME: ${escapeHtml(data.android_home || '')}</div>
         `;
+        markLoaded(el);
         if (data.latest_job && !setupJobId) {
           renderJob(data.latest_job, 'setup');
           if (data.latest_job.status === 'running') watchJob(data.latest_job.id, 'setup');
         }
       } catch (e) {
         el.innerHTML = `<div class="error">${escapeHtml(String(e))}</div>`;
+        markLoaded(el);
       }
     }
 
@@ -501,7 +521,7 @@
 
     async function loadCaptureStatus() {
       const el = document.getElementById('captureStatus');
-      el.innerHTML = '<div class="muted">状態取得中...</div>';
+      showLoadingIfFirst(el);
       try {
         const res = await fetch('/api/capture/status');
         const data = await res.json();
@@ -509,9 +529,12 @@
         if (data.latest_job && !captureJobId) {
           renderJob(data.latest_job);
           if (data.latest_job.status === 'running') watchCaptureJob(data.latest_job.id);
+        } else if (!captureJobId && data.setup_running) {
+          renderCaptureSetupBlocked(data.setup_running);
         }
       } catch (e) {
         el.innerHTML = `<div class="error">${escapeHtml(String(e))}</div>`;
+        markLoaded(el);
       }
     }
 
@@ -520,35 +543,37 @@
       const adb = data.adb || {};
       const wifi = data.wifi || {};
       const androidConnected = hasConnectedAndroid(adb.output);
+      const loginCount = Array.isArray(data.session_files) ? data.session_files.length : 0;
       const captures = (data.captures || []).slice(0, 5).map(x => `<li>${escapeHtml(x.name)} <span>${escapeHtml(x.mtime || '')}</span></li>`).join('');
       const sessions = (data.session_files || []).slice(0, 5).map(x => `<li>${escapeHtml(x.name)} <span>${escapeHtml(x.mtime || '')}</span></li>`).join('');
-      document.getElementById('captureStatus').innerHTML = `
-        <div class="status-grid">
-          <div class="mini-card ${wifi.ok ? 'green' : 'yellow'}">
-            <b>回線</b>
-            <span>${escapeHtml(firstLine(wifi.output) || '未確認')}</span>
+      const el = document.getElementById('captureStatus');
+      el.innerHTML = `
+        <div class="simple-status-row">
+          <div class="status-line ${androidConnected ? 'green' : 'yellow'}">
+            <b>Android画面</b>
+            <span>${escapeHtml(androidConnected ? '接続OK' : '未接続')}</span>
           </div>
-          <div class="mini-card ${androidConnected ? 'green' : 'yellow'}">
-            <b>Android接続</b>
-            <span>${escapeHtml(androidConnected ? firstUsefulLine(adb.output) : 'Android未接続')}</span>
+          <div class="status-line ${infra.ok ? 'green' : 'yellow'}">
+            <b>準備</b>
+            <span>${escapeHtml(infra.ok ? '準備OK' : '要確認')}</span>
           </div>
-          <div class="mini-card ${infra.ok ? 'green' : 'yellow'}">
-            <b>Android準備</b>
-            <span>${escapeHtml(infra.ok ? '準備OK' : '確認が必要')}</span>
-          </div>
-        </div>
-        <div class="capture-columns">
-          <div>
-            <h3>最新capture</h3>
-            <ul>${captures || '<li>なし</li>'}</ul>
-          </div>
-          <div>
-            <h3>最新session</h3>
-            <ul>${sessions || '<li>なし</li>'}</ul>
+          <div class="status-line ${loginCount > 0 ? 'green' : 'yellow'}">
+            <b>チェック用ログイン</b>
+            <span>${loginCount}個</span>
           </div>
         </div>
-        <details>
-          <summary>詳細ログ</summary>
+        <details class="diagnostic-details">
+          <summary>詳細状態・検証ログ</summary>
+          <div class="capture-columns">
+            <div>
+              <h3>最新capture</h3>
+              <ul>${captures || '<li>なし</li>'}</ul>
+            </div>
+            <div>
+              <h3>保存済みログイン</h3>
+              <ul>${sessions || '<li>なし</li>'}</ul>
+            </div>
+          </div>
           <pre>${escapeHtml([
             '--- wifi ---',
             wifi.output || '',
@@ -556,11 +581,30 @@
             adb.output || '',
             '--- infra ---',
             infra.output || '',
-            '--- strong sessions ---',
+            '--- saved logins ---',
             (data.sessions || {}).output || ''
           ].join('\\n'))}</pre>
         </details>
       `;
+      markLoaded(el);
+    }
+
+    function renderCaptureSetupBlocked(setupJob) {
+      const els = jobElements('capture');
+      els.state.textContent = '初回セットアップ実行中';
+      els.state.className = 'mini-pill yellow';
+      els.next.textContent = '初回セットアップ完了後に使えます。今は初回セットアップ欄の進行状況を確認してください。';
+      els.next.className = 'next-action yellow';
+      jobLogCache.capture = '初回セットアップ完了後に使えます。今は初回セットアップ欄の進行状況を確認してください。';
+      updateJobLogVisibility(els, 'capture');
+      renderJobProgress({
+        status: 'running',
+        label: 'チェック用ログイン追加',
+        current_step: '初回セットアップ待ち',
+        current_step_index: 0,
+        total_steps: 1,
+        commands: []
+      }, '', els.progress);
     }
 
     async function startCaptureInfra() {
@@ -594,7 +638,7 @@
       const input = document.getElementById('sagiInputCsv').value.trim();
       const url = input ? `/api/sagi/status?input_csv=${encodeURIComponent(input)}` : '/api/sagi/status';
       const el = document.getElementById('sagiStatus');
-      el.innerHTML = '<div class="muted">状態取得中...</div>';
+      showLoadingIfFirst(el);
       try {
         const res = await fetch(url);
         const data = await res.json();
@@ -610,22 +654,24 @@
             </div>
             <div class="mini-card ${notStarted ? 'yellow' : enough === false ? 'red' : 'green'}">
               <b>必要在庫</b>
-              <span>${notStarted ? '①で件数確認をすると表示されます' : `対象 ${data.input_count} 件 / 必要 ${data.needed_sessions} 本`}</span>
+              <span>${notStarted ? '①で件数確認をすると表示されます' : `対象 ${data.input_count} 件 / 必要 ${data.needed_sessions} 個`}</span>
             </div>
             <div class="mini-card ${notStarted ? 'yellow' : enough === false ? 'red' : 'green'}">
               <b>現在在庫</b>
-              <span>使えるsession ${data.healthy_sessions ?? '-'} 本 / 確認済み ${data.probe_sessions ?? '-'} 本</span>
+              <span>使えるログイン ${data.healthy_sessions ?? '-'} 個 / 確認済み ${data.probe_sessions ?? '-'} 個</span>
             </div>
           </div>
           ${csvListsHtml(data)}
           <details>
-            <summary>session詳細</summary>
+            <summary>チェック用ログイン詳細</summary>
             <pre>${escapeHtml((data.sessions || {}).output || '')}</pre>
           </details>
         `;
+        markLoaded(el);
         renderCsvPicker(data);
       } catch (e) {
         el.innerHTML = `<div class="error">${escapeHtml(String(e))}</div>`;
+        markLoaded(el);
       }
     }
 
@@ -696,10 +742,10 @@
       const needed = latestSagiStatus && latestSagiStatus.needed_sessions !== null ? latestSagiStatus.needed_sessions : null;
       const ok = window.confirm([
         count === null ? 'この入力CSVを本番チェックします。' : `この入力CSVの全 ${count} 件を本番チェックします。`,
-        needed === null ? '' : `必要なsession目安: ${needed}本`,
+        needed === null ? '' : `必要なチェック用ログイン目安: ${needed}個`,
         'この操作でInstagramの本番チェックを開始します。',
-        '途中で止まったら追加sessionを作って「途中から再開」を押します。',
-        'sessionを消費します。よろしいですか？'
+        '途中で止まったらチェック用ログインを追加して「途中から再開」を押します。',
+        'チェック用ログインを使います。よろしいですか？'
       ].filter(Boolean).join('\n'));
       if (!ok) return;
       await postJob('/api/sagi/check', {
@@ -940,10 +986,10 @@
       const text = String(name || '');
       if (text.includes('シートから対象アカウント取込')) return '対象取込';
       if (text.includes('対象アカウントをCSV化')) return 'CSV取込';
-      if (text.includes('強session必要本数')) return 'session確認';
-      if (text.includes('強session在庫')) return '在庫数';
-      if (text.includes('強session probe')) return '動作確認';
-      if (text.includes('強session一覧')) return '一覧';
+      if (text.includes('強session必要本数')) return 'ログイン確認';
+      if (text.includes('チェック用ログイン数') || text.includes('強session在庫')) return 'ログイン数';
+      if (text.includes('チェック用ログイン動作確認') || text.includes('強session probe')) return '動作確認';
+      if (text.includes('チェック用ログイン一覧') || text.includes('強session一覧')) return '一覧';
       if (text.includes('入力CSV確認')) return 'CSV確認';
       if (text.includes('dry-run')) return '安全確認';
       if (text.includes('本番')) return '本番チェック';
