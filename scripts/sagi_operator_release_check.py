@@ -976,6 +976,11 @@ stale_proxy = _classify_result(1, ["[FAIL] AVDからcapture proxyへ接続でき
 assert stale_proxy["outcome"] == "failed"
 assert "通信用設定" in stale_proxy["next_action"]
 
+avd_boot_timeout = _classify_result(1, ["[FAIL] AVD boot タイムアウト", "-- AVD起動ログ末尾: logs/avd_keepalive_x.log"])
+assert avd_boot_timeout["outcome"] == "failed"
+assert "Android画面の起動" in avd_boot_timeout["next_action"]
+assert "Mac再起動" in avd_boot_timeout["next_action"]
+
 tls = _classify_result(1, ["Client TLS handshake failed", "pinning error"])
 assert tls["outcome"] == "failed"
 assert "通信補助設定" in tls["next_action"]
@@ -1023,9 +1028,16 @@ assert "sagiSheetsBridgeHint" in app_html
 assert "setSagiTabByOffset" in app_html
 assert "藤巻確認用ログを見る" in app_html
 assert "表示ログをコピー" in app_html
+assert "hasConnectedAndroid" in app_html
+assert "Android未接続" in app_html
 assert "capturePassword" not in app_html
 
 ensure = Path("scripts/ensure_capture_infra.sh").read_text(encoding="utf-8")
+assert "cleanup_stale_avd_locks" in ensure
+assert "古いAVDロックを掃除しました" in ensure
+assert "-avd-name" in ensure
+assert "-no-snapshot-save -gpu swiftshader_indirect" in ensure
+assert "tail_avd_launch_log" in ensure
 assert 'bash "$SETUP_DEVICE" frida' in ensure
 assert 'frida-server 入れ直し完了' in ensure
 assert 'capture_proxy_host' in ensure
@@ -1041,6 +1053,11 @@ assert 'IG_CAP_USE_UPSTREAM' in ensure
 assert 'settings put global http_proxy "$expected_proxy"' in ensure
 assert '&& $proxy_reachable' not in ensure
 assert 'proxy_reachable -eq' not in ensure
+
+avd_setup = Path("scripts/setup_ig_capture_avd.sh").read_text(encoding="utf-8")
+assert "cleanup_stale_avd_locks" in avd_setup
+assert "-avd-name" in avd_setup
+assert "-no-snapshot-save -gpu swiftshader_indirect" in avd_setup
 
 instagram_install = Path("scripts/install_instagram_apk.sh").read_text(encoding="utf-8")
 assert 'emu avd name' in instagram_install

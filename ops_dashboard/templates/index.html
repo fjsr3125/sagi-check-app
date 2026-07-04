@@ -446,6 +446,7 @@
       const infra = data.infra || {};
       const adb = data.adb || {};
       const wifi = data.wifi || {};
+      const androidConnected = hasConnectedAndroid(adb.output);
       const captures = (data.captures || []).slice(0, 5).map(x => `<li>${escapeHtml(x.name)} <span>${escapeHtml(x.mtime || '')}</span></li>`).join('');
       const sessions = (data.session_files || []).slice(0, 5).map(x => `<li>${escapeHtml(x.name)} <span>${escapeHtml(x.mtime || '')}</span></li>`).join('');
       document.getElementById('captureStatus').innerHTML = `
@@ -454,9 +455,9 @@
             <b>回線</b>
             <span>${escapeHtml(firstLine(wifi.output) || '未確認')}</span>
           </div>
-          <div class="mini-card ${adb.ok ? 'green' : 'yellow'}">
+          <div class="mini-card ${androidConnected ? 'green' : 'yellow'}">
             <b>Android接続</b>
-            <span>${escapeHtml(firstUsefulLine(adb.output) || 'Android未確認')}</span>
+            <span>${escapeHtml(androidConnected ? firstUsefulLine(adb.output) : 'Android未接続')}</span>
           </div>
           <div class="mini-card ${infra.ok ? 'green' : 'yellow'}">
             <b>Android準備</b>
@@ -909,6 +910,10 @@
 
     function firstUsefulLine(text) {
       return String(text || '').split('\n').find(line => line.includes('device') || line.includes('emulator')) || firstLine(text);
+    }
+
+    function hasConnectedAndroid(text) {
+      return String(text || '').split('\n').some(line => /\bdevice\b/.test(line) && /(^|\s)emulator-|transport_id:|model:/.test(line));
     }
 
     function extractSheetId(url) {

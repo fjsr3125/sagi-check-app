@@ -24,6 +24,8 @@ ABI="${IG_CAP_ABI:-arm64-v8a}"  # Apple Silicon 前提
 TAG="google_apis"               # NOT google_apis_playstore (root必須)
 AVD_NAME="${IG_CAP_AVD:-ig_capture}"
 DEVICE_PROFILE="${IG_CAP_DEVICE:-pixel_6}"
+AVD_DIR="$ANDROID_AVD_HOME/$AVD_NAME.avd"
+AVD_TEMP_RUNNING_DIR="$HOME/Library/Caches/TemporaryItems/avd/running"
 
 SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 AVDMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager"
@@ -43,6 +45,50 @@ fi
 IMAGE="system-images;android-${API_LEVEL};${TAG};${ABI}"
 
 action="${1:-setup}"
+
+any_emulator_process_running() {
+    ps -Ao command= 2>/dev/null | awk '
+        /[e]mulator/ || /[q]emu-system/ { found=1 }
+        END { exit found ? 0 : 1 }
+    '
+}
+
+avd_process_pids() {
+    ps -Ao pid=,command= 2>/dev/null | awk -v avd="$AVD_NAME" '
+        /[e]mulator/ || /[q]emu-system/ {
+            if ($0 ~ ("-avd[[:space:]]+" avd) || $0 ~ ("-avd-name[[:space:]]+" avd) || $0 ~ ("@" avd "([[:space:]]|$)") || $0 ~ ("/" avd "\\.avd/")) {
+                print $1
+            }
+        }
+    '
+}
+
+cleanup_stale_avd_locks() {
+    local lock tmp_item removed pids
+    if [[ ! -d "$AVD_DIR" ]]; then
+        return 0
+    fi
+    pids="$(avd_process_pids | tr '\n' ' ' || true)"
+    if [[ -n "$pids" ]]; then
+        echo "[INFO] AVD $AVD_NAME のemulatorプロセスが残っています (PID: $pids)。lock掃除はスキップします。"
+        return 0
+    fi
+
+    removed=0
+    for lock in "$AVD_DIR"/*.lock; do
+        [[ -e "$lock" ]] || continue
+        rm -rf "$lock" && removed=1
+    done
+    if ! any_emulator_process_running && [[ -d "$AVD_TEMP_RUNNING_DIR" ]]; then
+        for tmp_item in "$AVD_TEMP_RUNNING_DIR"/*; do
+            [[ -e "$tmp_item" ]] || continue
+            rm -rf "$tmp_item" && removed=1
+        done
+    fi
+    if [[ $removed -eq 1 ]]; then
+        echo "[OK] 古いAVDロックを掃除しました"
+    fi
+}
 
 case "$action" in
   setup)
@@ -68,7 +114,8 @@ case "$action" in
   run)
     echo "== Launching $AVD_NAME with -writable-system =="
     echo "(別ターミナルで動かしてください。起動後 emulator-5554 で adb 接続されます)"
-    exec "$EMULATOR" -avd "$AVD_NAME" -writable-system -no-snapshot-load
+    cleanup_stale_avd_locks
+    exec "$EMULATOR" -avd "$AVD_NAME" -writable-system -no-snapshot-load -no-snapshot-save -gpu swiftshader_indirect
     ;;
 
   *)

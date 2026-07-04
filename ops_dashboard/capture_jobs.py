@@ -442,6 +442,16 @@ def _classify_result(returncode: int, log: list[str], *, success_next_action: st
             "outcome": "failed",
             "next_action": "Android画面の通信先が古いか、Mac内の受け口に届いていません。初回セットアップの「通信用設定」を押し直してから、強session補充の「sessionを1本作る」を再実行してください。",
         }
+    if (
+        "AVD boot タイムアウト" in joined
+        or "emulator が見つかりません" in joined
+        or "Could not launch" in joined
+        or "PANIC: Broken AVD system path" in joined
+    ):
+        return {
+            "outcome": "failed",
+            "next_action": "Android画面の起動に失敗しました。アプリを終了して開き直し、「Android準備だけやり直す」を押してください。繰り返す場合はMac再起動後に同じ操作をし、表示ログを管理者へ渡してください。",
+        }
     if returncode == 124 or "timeout after" in joined:
         return {
             "outcome": "failed",
