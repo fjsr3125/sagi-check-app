@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import hashlib
+import fcntl
 import json
 import shutil
 import stat
@@ -414,19 +415,31 @@ def ad_hoc_sign_app() -> None:
         raise RuntimeError(f"app signature verification failed after signing: {detail}")
 
 
-def main() -> int:
-    if APP_DIR.exists():
-        shutil.rmtree(APP_DIR)
-    MACOS.mkdir(parents=True, exist_ok=True)
-    RESOURCES.mkdir(parents=True, exist_ok=True)
-    copy_source()
-    copy_instagram_package()
-    copy_python_runtime()
-    remove_python_caches(BUNDLED_SRC)
-    remove_python_caches(BUNDLED_PYTHON)
+def acquire_build_lock():
+    (ROOT / "dist").mkdir(parents=True, exist_ok=True)
+    lock_path = ROOT / "dist" / ".sagi_operator_build.lock"
+    lock_file = lock_path.open("w", encoding="utf-8")
+    print(f"waiting for build lock: {lock_path}")
+    fcntl.flock(lock_file, fcntl.LOCK_EX)
+    print(f"acquired build lock: {lock_path}")
+    return lock_file
 
-    version = app_version()
-    plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+
+def main() -> int:
+    lock_file = acquire_build_lock()
+    try:
+        if APP_DIR.exists():
+            shutil.rmtree(APP_DIR)
+        MACOS.mkdir(parents=True, exist_ok=True)
+        RESOURCES.mkdir(parents=True, exist_ok=True)
+        copy_source()
+        copy_instagram_package()
+        copy_python_runtime()
+        remove_python_caches(BUNDLED_SRC)
+        remove_python_caches(BUNDLED_PYTHON)
+
+        version = app_version()
+        plist = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -451,9 +464,9 @@ def main() -> int:
 </dict>
 </plist>
 """
-    write_text(CONTENTS / "Info.plist", plist)
+        write_text(CONTENTS / "Info.plist", plist)
 
-    launcher = """#!/bin/zsh
+        launcher = """#!/bin/zsh
 set -u
 
 APP_ROOT="$HOME/Library/Application Support/UnariSagiOperator/unari"
@@ -492,7 +505,8 @@ APPLESCRIPT
 
 install_python_deps() {
   "$PY" -m ensurepip --upgrade || return 1
-  PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_INPUT=1 "$PY" -m pip install -r "$APP_ROOT/requirements.txt"
+  PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_INPUT=1 PIP_DEFAULT_TIMEOUT=60 PIP_PROGRESS_BAR=off \
+    "$PY" -m pip install --retries 5 --timeout 60 --prefer-binary -r "$APP_ROOT/requirements.txt"
 }
 
 rsync -a --delete \
@@ -664,13 +678,15 @@ APPLESCRIPT
 fi
 exit 1
 """
-    write_text(EXECUTABLE, launcher, executable=True)
-    ad_hoc_sign_app()
+        write_text(EXECUTABLE, launcher, executable=True)
+        ad_hoc_sign_app()
 
-    print(f"created: {APP_DIR}")
-    print(f"bundled source: {BUNDLED_SRC}")
-    print(f"runtime root: {Path.home() / 'Library' / 'Application Support' / 'UnariSagiOperator' / 'unari'}")
-    return 0
+        print(f"created: {APP_DIR}")
+        print(f"bundled source: {BUNDLED_SRC}")
+        print(f"runtime root: {Path.home() / 'Library' / 'Application Support' / 'UnariSagiOperator' / 'unari'}")
+        return 0
+    finally:
+        lock_file.close()
 
 
 if __name__ == "__main__":

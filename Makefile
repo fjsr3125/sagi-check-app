@@ -1,4 +1,4 @@
-.PHONY: help ci check sagi-operator-install-app sagi-operator-smoke sagi-operator-release-package
+.PHONY: help ci check sagi-operator-install-app sagi-operator-smoke sagi-operator-local-smoke sagi-operator-release-package
 
 PYTHON ?= python3
 VERSION ?=
@@ -10,6 +10,7 @@ help:
 	@printf '%s\n' '  make check                           Python構文チェック'
 	@printf '%s\n' '  make sagi-operator-install-app       distへ.appを作成'
 	@printf '%s\n' '  make sagi-operator-smoke             member-ready配布前チェック'
+	@printf '%s\n' '  make sagi-operator-local-smoke       秘密設定なしのローカル広域チェック'
 	@printf '%s\n' '  make sagi-operator-release-package   DMG/ZIP/latest.jsonを生成'
 
 ci: check
@@ -23,6 +24,9 @@ sagi-operator-install-app:
 
 sagi-operator-smoke:
 	$(PYTHON) scripts/sagi_operator_release_check.py
+
+sagi-operator-local-smoke:
+	SAGI_OPERATOR_ALLOW_MISSING_PRIVATE_ASSETS=1 $(PYTHON) scripts/sagi_operator_release_check.py --allow-missing-private-assets
 
 sagi-operator-release-package:
 	SAGI_OPERATOR_REQUIRE_INSTAGRAM_PACKAGE=1 SAGI_OPERATOR_REQUIRE_MEMBERS_CONFIG=1 SAGI_OPERATOR_REQUIRE_SHEETS_BRIDGE_CONFIG=1 SAGI_OPERATOR_REQUIRE_CAPTURE_TOOLS=1 $(PYTHON) scripts/package_sagi_operator_release.py $(if $(VERSION),--version "$(VERSION)",) $(if $(BASE_URL),--base-url "$(BASE_URL)",)

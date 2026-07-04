@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import shutil
@@ -35,6 +36,8 @@ TOOL_FILES = [
 CAPTURE_TOOLS_DIR_ENV = "SAGI_OPERATOR_CAPTURE_TOOLS_DIR"
 MEMBERS_CONFIG_ENV = "SAGI_OPERATOR_MEMBERS_CONFIG"
 UPDATE_CONFIG_ENV = "SAGI_OPERATOR_UPDATE_CONFIG"
+SHEETS_BRIDGE_CONFIG_ENV = "SAGI_SHEETS_BRIDGE_CONFIG"
+ALLOW_MISSING_PRIVATE_ASSETS_ENV = "SAGI_OPERATOR_ALLOW_MISSING_PRIVATE_ASSETS"
 SECRET_PATTERNS = [
     "accounts.json",
     "hubspot_members.json",
@@ -46,6 +49,30 @@ LOCAL_PATH_PATTERNS = [
     "/Users/fujimakisora",
     "fujimakisora",
 ]
+
+
+def acquire_release_check_lock():
+    (ROOT / "dist").mkdir(parents=True, exist_ok=True)
+    lock_path = ROOT / "dist" / ".sagi_operator_release_check.lock"
+    lock_file = lock_path.open("w", encoding="utf-8")
+    fcntl.flock(lock_file, fcntl.LOCK_EX)
+    return lock_file
+
+
+def _env_enabled(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _allow_missing_private_assets() -> bool:
+    return _env_enabled(ALLOW_MISSING_PRIVATE_ASSETS_ENV)
+
+
+def _existing_path_from_env(name: str) -> Path | None:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return None
+    path = Path(value).expanduser()
+    return path if path.exists() else None
 
 
 def run(
@@ -159,6 +186,12 @@ def check_bundled_python() -> dict:
 
 
 def check_sheets_bridge_bundle() -> dict:
+    source_candidates = [
+        _existing_path_from_env(SHEETS_BRIDGE_CONFIG_ENV),
+        ROOT / "config" / "sagi_sheets_bridge.json",
+        Path.home() / ".config" / "unari" / "sagi_sheets_bridge.json",
+    ]
+    source_available = any(path and path.exists() for path in source_candidates)
     required = [
         APP_ROOT / "scripts" / "sheets_bridge.py",
         APP_ROOT / "scripts" / "sheets_auth.py",
@@ -188,6 +221,15 @@ def check_sheets_bridge_bundle() -> dict:
             }
         except (OSError, json.JSONDecodeError) as e:
             config_summary = {"error": str(e)}
+    private_missing = missing == ["config/sagi_sheets_bridge.json"] and not source_available
+    if private_missing and _allow_missing_private_assets():
+        return {
+            "ok": True,
+            "skipped": "private Sheets bridge config is not available in this local checkout",
+            "missing": missing,
+            "stale": stale,
+            "config": config_summary,
+        }
     return {
         "ok": not missing and not stale and config_ok,
         "missing": missing,
@@ -199,6 +241,12 @@ def check_sheets_bridge_bundle() -> dict:
 def check_instagram_package_bundle() -> dict:
     apk_dir = APP_ROOT / "apks"
     if not apk_dir.exists():
+        if _allow_missing_private_assets():
+            return {
+                "ok": True,
+                "skipped": "Instagram APK/APKM/XAPK is not available in this local checkout",
+                "missing": "unari-src/apks directory is missing",
+            }
         return {"ok": False, "missing": "unari-src/apks directory is missing"}
     packages = [
         path
@@ -208,6 +256,12 @@ def check_instagram_package_bundle() -> dict:
         and "instagram" in path.name.lower()
     ]
     if not packages:
+        if _allow_missing_private_assets():
+            return {
+                "ok": True,
+                "skipped": "Instagram APK/APKM/XAPK is not available in this local checkout",
+                "missing": "Instagram APK/APKM/XAPK is not bundled",
+            }
         return {"ok": False, "missing": "Instagram APK/APKM/XAPK is not bundled"}
     return {
         "ok": True,
@@ -232,6 +286,12 @@ def check_members_config_bundle() -> dict:
     source = Path(os.environ.get(MEMBERS_CONFIG_ENV, str(ROOT / "config" / "members.json"))).expanduser()
     bundled = APP_ROOT / "config" / "members.json"
     if not source.exists():
+        if _allow_missing_private_assets():
+            return {
+                "ok": True,
+                "skipped": "private members config is not available in this local checkout",
+                "missing": f"members config is missing: {source}",
+            }
         return {"ok": False, "missing": f"members config is missing: {source}"}
     if not bundled.exists():
         return {"ok": False, "missing": "unari-src/config/members.json is not bundled"}
@@ -278,6 +338,8 @@ def check_launcher_script() -> dict:
         "display dialog messageText & linefeed",
         "display dialog \"アプリ画面の起動に失敗しました。\" & linefeed",
         "required=[\"flask\",\"requests\",\"instagrapi\",\"googleapiclient\",\"frida\",\"mitmproxy\"]",
+        "--retries 5 --timeout 60 --prefer-binary",
+        "PIP_PROGRESS_BAR=off",
     ]
     missing = [item for item in required if item not in text]
     if '--exclude "members.json"' in text:
@@ -664,6 +726,121 @@ def check_member_broken_venv_repair() -> dict:
             _kill_port(port)
 
 
+def check_member_stale_server_guard() -> dict:
+    if not APP_EXECUTABLE.exists():
+        return {"ok": False, "error": f"app executable not found: {APP_EXECUTABLE}"}
+    port = _free_port()
+    server_code = r"""
+import json
+import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/api/runtime/status":
+            body = json.dumps(
+                {
+                    "ok": True,
+                    "root": "/tmp/old-unari-operator",
+                    "version": "0.0.0-old",
+                    "build": "oldbuild",
+                }
+            ).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        body = b"old operator"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_args):
+        return
+
+server = ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), Handler)
+server.serve_forever()
+"""
+    with tempfile.TemporaryDirectory(prefix="unari_operator_stale_server_home_") as td:
+        home = Path(td)
+        app_root = home / "Library" / "Application Support" / "UnariSagiOperator" / "unari"
+        repo_venv = ROOT / "venv"
+        repo_python = repo_venv / "bin" / "python"
+        if not repo_python.exists():
+            return {
+                "ok": True,
+                "skipped": "repo venv is not available for fast stale-server executable check",
+            }
+        app_root.mkdir(parents=True, exist_ok=True)
+        (app_root / "venv").symlink_to(repo_venv, target_is_directory=True)
+        env = os.environ.copy()
+        env.update(
+            {
+                "HOME": str(home),
+                "OPS_PORT": str(port),
+                "UNARI_OPERATOR_NO_UI": "1",
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONPYCACHEPREFIX": str(home / "pycache"),
+            }
+        )
+        fake_server = subprocess.Popen(
+            [sys.executable, "-c", server_code, str(port)],
+            cwd=ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        try:
+            deadline = time.time() + 10
+            while time.time() < deadline:
+                try:
+                    _read_json(f"http://127.0.0.1:{port}/api/runtime/status", timeout=2)
+                    break
+                except Exception:
+                    time.sleep(0.2)
+            else:
+                return {"ok": False, "error": "fake stale server did not start"}
+
+            proc = subprocess.run(
+                [str(APP_EXECUTABLE)],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            logs_dir = home / "Library" / "Logs" / "UnariSagiOperator"
+            launcher_logs = sorted(logs_dir.glob("launcher_*.log")) if logs_dir.exists() else []
+            log_text = "\n".join(path.read_text(encoding="utf-8", errors="ignore") for path in launcher_logs)
+            expected = [
+                "runtime check failed: root mismatch",
+                "古いUnari Sagi Operatorが起動中です",
+                "Macを再起動",
+            ]
+            missing = [item for item in expected if item not in log_text and item not in proc.stdout and item not in proc.stderr]
+            return {
+                "ok": proc.returncode != 0 and not missing,
+                "returncode": proc.returncode,
+                "missing": missing,
+                "launcher_log_count": len(launcher_logs),
+                "stdout_tail": proc.stdout[-800:],
+                "stderr_tail": proc.stderr[-800:],
+                "log_tail": log_text[-1200:],
+            }
+        finally:
+            fake_server.terminate()
+            try:
+                fake_server.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                fake_server.kill()
+            _kill_port(port)
+
+
 def check_flask_api() -> dict:
     code = """
 from ops_dashboard.app import app
@@ -900,6 +1077,18 @@ def check_launcher_stale_server_restart() -> dict:
         "古いUnari Sagi Operatorが起動中",
         "Macを再起動",
         "operator=1&t=$(date +%s)",
+    ]
+    missing = [item for item in required if item not in text]
+    return {"ok": not missing, "missing": missing}
+
+
+def check_app_build_lock() -> dict:
+    text = (ROOT / "scripts" / "install_sagi_operator_app.py").read_text(encoding="utf-8")
+    required = [
+        "import fcntl",
+        ".sagi_operator_build.lock",
+        "fcntl.flock(lock_file, fcntl.LOCK_EX)",
+        "lock_file.close()",
     ]
     missing = [item for item in required if item not in text]
     return {"ok": not missing, "missing": missing}
@@ -1274,46 +1463,59 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--docker", action="store_true", help="Docker隔離compile確認も実行する")
     parser.add_argument("--member-first-launch", action="store_true", help="空のHOMEと最小PATHで配布appの初回起動を確認する")
+    parser.add_argument(
+        "--allow-missing-private-assets",
+        action="store_true",
+        help="ローカル開発用。members/Sheets bridge等の秘密設定が無い場合だけ該当チェックをskip扱いにする",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
+    if args.allow_missing_private_assets:
+        os.environ[ALLOW_MISSING_PRIVATE_ASSETS_ENV] = "1"
 
-    results: list[dict] = []
-    quiet = args.json
-    step("make check", run(["make", "check"], timeout=300), results, quiet=quiet)
-    step("shell syntax", check_shell_syntax(), results, quiet=quiet)
-    step("Flask API smoke", check_flask_api(), results, quiet=quiet)
-    step("sagi sheet job wiring", check_sagi_sheet_job_wiring(), results, quiet=quiet)
-    step("setup job wiring", check_setup_job_wiring(), results, quiet=quiet)
-    step("related log stitching", check_related_log_stitching(), results, quiet=quiet)
-    step("launcher stale server restart", check_launcher_stale_server_restart(), results, quiet=quiet)
-    step("capture diagnostics", check_capture_diagnostics(), results, quiet=quiet)
-    step("accounts config bootstrap", check_accounts_config_bootstrap(), results, quiet=quiet)
-    step("build Unari Sagi Operator.app", run(["make", "sagi-operator-install-app"], timeout=300), results, quiet=quiet)
-    step("launcher script", check_launcher_script(), results, quiet=quiet)
-    step("Sheets bridge bundle", check_sheets_bridge_bundle(), results, quiet=quiet)
-    step("Instagram package bundle", check_instagram_package_bundle(), results, quiet=quiet)
-    step("capture tools bundle", check_capture_tools_bundle(), results, quiet=quiet)
-    step("members config bundle", check_members_config_bundle(), results, quiet=quiet)
-    step("update config bundle", check_update_bundle(), results, quiet=quiet)
-    step("bundle Python cache exclusion", check_bundle_python_caches(), results, quiet=quiet)
-    step("app code signature", check_app_signature(), results, quiet=quiet)
-    step("bundled Python runtime", check_bundled_python(), results, quiet=quiet)
-    step("bundle Python cache exclusion after Python check", check_bundle_python_caches(), results, quiet=quiet)
-    step("app code signature after Python check", check_app_signature(), results, quiet=quiet)
-    step("bundle secret exclusion", check_bundle_secrets(), results, quiet=quiet)
-    step("bundle local path exclusion", check_bundle_local_paths(), results, quiet=quiet)
-    if args.member_first_launch:
-        step("member Mac first-launch simulation", check_member_first_launch(), results, quiet=quiet)
-        step("bundle Python cache exclusion after first launch", check_bundle_python_caches(), results, quiet=quiet)
-        step("app code signature after first launch", check_app_signature(), results, quiet=quiet)
-        step("member Mac broken venv repair simulation", check_member_broken_venv_repair(), results, quiet=quiet)
-        step("bundle Python cache exclusion after broken venv repair", check_bundle_python_caches(), results, quiet=quiet)
-        step("app code signature after broken venv repair", check_app_signature(), results, quiet=quiet)
-    if args.docker:
-        step("Docker isolated compile", check_docker_compile(), results, quiet=quiet)
-    step("archive payload verification", check_archive_payloads(), results, quiet=quiet)
-    step("archive content freshness", check_archive_contents(), results, quiet=quiet)
-    step("DMG app code signature", check_dmg_app_signature(), results, quiet=quiet)
+    lock_file = acquire_release_check_lock()
+    try:
+        results: list[dict] = []
+        quiet = args.json
+        step("make check", run(["make", "check"], timeout=300), results, quiet=quiet)
+        step("shell syntax", check_shell_syntax(), results, quiet=quiet)
+        step("Flask API smoke", check_flask_api(), results, quiet=quiet)
+        step("sagi sheet job wiring", check_sagi_sheet_job_wiring(), results, quiet=quiet)
+        step("setup job wiring", check_setup_job_wiring(), results, quiet=quiet)
+        step("related log stitching", check_related_log_stitching(), results, quiet=quiet)
+        step("launcher stale server restart", check_launcher_stale_server_restart(), results, quiet=quiet)
+        step("app build lock", check_app_build_lock(), results, quiet=quiet)
+        step("capture diagnostics", check_capture_diagnostics(), results, quiet=quiet)
+        step("accounts config bootstrap", check_accounts_config_bootstrap(), results, quiet=quiet)
+        step("build Unari Sagi Operator.app", run(["make", "sagi-operator-install-app"], timeout=300), results, quiet=quiet)
+        step("launcher script", check_launcher_script(), results, quiet=quiet)
+        step("member stale server guard", check_member_stale_server_guard(), results, quiet=quiet)
+        step("Sheets bridge bundle", check_sheets_bridge_bundle(), results, quiet=quiet)
+        step("Instagram package bundle", check_instagram_package_bundle(), results, quiet=quiet)
+        step("capture tools bundle", check_capture_tools_bundle(), results, quiet=quiet)
+        step("members config bundle", check_members_config_bundle(), results, quiet=quiet)
+        step("update config bundle", check_update_bundle(), results, quiet=quiet)
+        step("bundle Python cache exclusion", check_bundle_python_caches(), results, quiet=quiet)
+        step("app code signature", check_app_signature(), results, quiet=quiet)
+        step("bundled Python runtime", check_bundled_python(), results, quiet=quiet)
+        step("bundle Python cache exclusion after Python check", check_bundle_python_caches(), results, quiet=quiet)
+        step("app code signature after Python check", check_app_signature(), results, quiet=quiet)
+        step("bundle secret exclusion", check_bundle_secrets(), results, quiet=quiet)
+        step("bundle local path exclusion", check_bundle_local_paths(), results, quiet=quiet)
+        if args.member_first_launch:
+            step("member Mac first-launch simulation", check_member_first_launch(), results, quiet=quiet)
+            step("bundle Python cache exclusion after first launch", check_bundle_python_caches(), results, quiet=quiet)
+            step("app code signature after first launch", check_app_signature(), results, quiet=quiet)
+            step("member Mac broken venv repair simulation", check_member_broken_venv_repair(), results, quiet=quiet)
+            step("bundle Python cache exclusion after broken venv repair", check_bundle_python_caches(), results, quiet=quiet)
+            step("app code signature after broken venv repair", check_app_signature(), results, quiet=quiet)
+        if args.docker:
+            step("Docker isolated compile", check_docker_compile(), results, quiet=quiet)
+        step("archive payload verification", check_archive_payloads(), results, quiet=quiet)
+        step("archive content freshness", check_archive_contents(), results, quiet=quiet)
+        step("DMG app code signature", check_dmg_app_signature(), results, quiet=quiet)
+    finally:
+        lock_file.close()
 
     ok = all(item.get("ok") for item in results)
     payload = {"ok": ok, "results": results}
