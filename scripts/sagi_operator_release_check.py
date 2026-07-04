@@ -938,6 +938,106 @@ def check_dashboard_js_syntax() -> dict:
     }
 
 
+def check_update_download_flow() -> dict:
+    code = """
+import hashlib
+import json
+import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from ops_dashboard import update_check
+
+
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+old_config = update_check.CONFIG_PATH
+old_version = update_check.VERSION_PATH
+old_home = os.environ.get("HOME")
+try:
+    with TemporaryDirectory(prefix="unari_update_flow_") as td:
+        root = Path(td)
+        fake_home = root / "home"
+        fake_home.mkdir()
+        os.environ["HOME"] = str(fake_home)
+
+        version_path = root / "sagi_operator_version.json"
+        config_path = root / "sagi_operator_update.json"
+        manifest_path = root / "latest.json"
+        dmg_path = root / "UnariSagiOperator-2099.01.01.1.dmg"
+        dmg_path.write_bytes(b"fake-dmg-v1")
+        expected_sha = sha256(dmg_path)
+
+        version_path.write_text(
+            json.dumps({"version": "2026.07.05.1", "build": "old"}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        manifest = {
+            "app": "Unari Sagi Operator",
+            "version": "2099.01.01.1",
+            "build": "testbuild",
+            "download_url": dmg_path.as_uri(),
+            "assets": {
+                "dmg": {
+                    "name": dmg_path.name,
+                    "url": dmg_path.as_uri(),
+                    "sha256": expected_sha,
+                    "size_bytes": dmg_path.stat().st_size,
+                }
+            },
+        }
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+        config_path.write_text(
+            json.dumps({"enabled": True, "latest_url": str(manifest_path), "check_timeout_seconds": 2}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        update_check.CONFIG_PATH = config_path
+        update_check.VERSION_PATH = version_path
+
+        status = update_check.collect_update_status()
+        assert status["ok"] is True
+        assert status["enabled"] is True
+        assert status["update_available"] is True
+        assert status["latest"]["version"] == "2099.01.01.1"
+
+        dest = fake_home / "Downloads" / dmg_path.name
+        dest.parent.mkdir(parents=True)
+        dest.write_bytes(b"corrupt-old-download")
+        result = update_check.download_latest_update(open_after=False)
+        assert result["ok"] is True, result
+        assert result["opened"] is False
+        assert Path(result["path"]) == dest
+        assert dest.read_bytes() == b"fake-dmg-v1"
+        assert result["sha256"] == expected_sha
+
+        manifest["assets"]["dmg"]["sha256"] = "0" * 64
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+        dest.write_bytes(b"corrupt-again")
+        bad = update_check.download_latest_update(open_after=False)
+        assert bad["ok"] is False
+        assert "検証に失敗" in bad["message"]
+        assert not dest.exists(), "bad SHA download must be removed"
+finally:
+    update_check.CONFIG_PATH = old_config
+    update_check.VERSION_PATH = old_version
+    if old_home is None:
+        os.environ.pop("HOME", None)
+    else:
+        os.environ["HOME"] = old_home
+
+print("update download flow ok")
+"""
+    python = str(ROOT / "venv" / "bin" / "python") if (ROOT / "venv" / "bin" / "python").exists() else sys.executable
+    return run([python, "-c", code], timeout=120)
+
+
 def check_sagi_sheet_job_wiring() -> dict:
     code = """
 from ops_dashboard import check_jobs
@@ -1590,6 +1690,7 @@ def main() -> int:
         step("shell syntax", check_shell_syntax(), results, quiet=quiet)
         step("Flask API smoke", check_flask_api(), results, quiet=quiet)
         step("dashboard JS syntax", check_dashboard_js_syntax(), results, quiet=quiet)
+        step("update download flow", check_update_download_flow(), results, quiet=quiet)
         step("sagi sheet job wiring", check_sagi_sheet_job_wiring(), results, quiet=quiet)
         step("setup job wiring", check_setup_job_wiring(), results, quiet=quiet)
         step("related log stitching", check_related_log_stitching(), results, quiet=quiet)
