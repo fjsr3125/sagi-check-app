@@ -1673,6 +1673,14 @@ assert "タブ名を入力" in post_error("/api/sagi/sheet-check", {"sheet_url":
 assert "タブ名を入力" in post_error("/api/sagi/extract", {"sheet_url": "https://docs.google.com/spreadsheets/d/abc/edit"})
 assert "シートURL/IDまたはCSVファイル" in post_error("/api/sagi/extract", {})
 assert "このアプリ内のファイル" in post_error("/api/sagi/extract", {"csv_path": "../outside.csv"})
+assert "数字で入力" in post_error(
+    "/api/capture/run-all",
+    {"username": "sample", "confirm_tethering": True, "interval": "abc"},
+)
+assert "範囲で入力" in post_error(
+    "/api/capture/run-all",
+    {"username": "sample", "confirm_tethering": True, "interval": 10},
+)
 assert "CSVファイル" in post_error("/api/sagi/check", {})
 assert "続きから再開するには結果CSV" in post_error(
     "/api/sagi/check",

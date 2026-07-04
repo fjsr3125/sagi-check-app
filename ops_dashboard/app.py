@@ -84,6 +84,19 @@ def _job_error_response(error: str):
     return jsonify({"ok": False, "error": error}), status
 
 
+def _int_field(data: dict, name: str, default: int, *, min_value: int, max_value: int, label: str) -> tuple[int, str | None]:
+    raw = data.get(name, default)
+    if raw in ("", None):
+        raw = default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default, f"{label}は{min_value}〜{max_value}の数字で入力してください。"
+    if value < min_value or value > max_value:
+        return default, f"{label}は{min_value}〜{max_value}の範囲で入力してください。"
+    return value, None
+
+
 @app.errorhandler(Exception)
 def handle_exception(exc: Exception):
     if not request.path.startswith("/api/"):
@@ -163,12 +176,22 @@ def api_capture_start_infra():
 @app.route("/api/capture/run-all", methods=["POST"])
 def api_capture_run_all():
     data = request.get_json(silent=True) or {}
+    interval, interval_error = _int_field(
+        data,
+        "interval",
+        120,
+        min_value=30,
+        max_value=600,
+        label="連続作成するときの待ち時間",
+    )
+    if interval_error:
+        return _job_error_response(interval_error)
     job, error = start_capture_all_job(
         username=str(data.get("username", "")),
         password=str(data.get("password", "")),
         confirm_tethering=bool(data.get("confirm_tethering")),
         skip_accounts_check=bool(data.get("skip_accounts_check", True)),
-        interval=int(data.get("interval") or 120),
+        interval=interval,
         manual_login=bool(data.get("manual_login", True)),
     )
     if error:
