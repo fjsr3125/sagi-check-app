@@ -1184,10 +1184,60 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                             return document.querySelector('#jobLog')?.textContent || '';
                         }\"\"\"
                     )
+                    error_surface = page.evaluate(
+                        \"\"\"() => {
+                            const capacity = 'チェック対象は100件です。1つのチェック用ログインで1日50件まで確認できます。今回は2個必要ですが、今使えるのは1個です。あと1個、新しいInstagramアカウントでチェック用ログインを作ってください。';
+                            renderJob({
+                                label: '詐欺チェック: 本番実行',
+                                status: 'failed',
+                                outcome: 'capacity_shortage',
+                                next_action: capacity,
+                                current_step: '強session必要本数チェック',
+                                current_step_index: 1,
+                                total_steps: 3,
+                                commands: [{name: '強session必要本数チェック'}, {name: 'dry-run'}, {name: 'api_warning_check 本番'}],
+                                log: ['NEEDS_SUPPLEMENT target_count=100 needed_sessions=2 healthy_sessions=1 missing_sessions=1']
+                            }, 'sagi');
+                            const capacityState = document.querySelector('#sagiJobState')?.innerText || '';
+                            const capacityNext = document.querySelector('#sagiJobNextAction')?.innerText || '';
+
+                            const login = 'Instagram側で再ログインが必要になりました。結果CSVは消さずに残っています。別のInstagramアカウントで「チェック用ログインを1つ作る」を実行し、完了後に「途中から再開」を押してください。';
+                            renderJob({
+                                label: '詐欺チェック: 続きから再開',
+                                status: 'failed',
+                                outcome: 'login_required',
+                                next_action: login,
+                                current_step: 'api_warning_check 本番',
+                                current_step_index: 3,
+                                total_steps: 3,
+                                commands: [{name: '強session必要本数チェック'}, {name: 'dry-run'}, {name: 'api_warning_check 本番'}],
+                                log: ['LoginRequired: relogin needed', 'logs/sagi_operator_result_20260705_120000.csv']
+                            }, 'sagi');
+                            const loginState = document.querySelector('#sagiJobState')?.innerText || '';
+                            const loginNext = document.querySelector('#sagiJobNextAction')?.innerText || '';
+
+                            renderJob({
+                                label: 'チェック用ログイン作成: sample',
+                                status: 'failed',
+                                outcome: 'port_conflict',
+                                next_action: '通信準備で止まりました。Macを再起動してから、Unari Sagi Operatorを開き直してください。',
+                                current_step: 'AVD/mitmdump/Fridaを起動確認',
+                                current_step_index: 1,
+                                total_steps: 2,
+                                commands: [{name: 'AVD/mitmdump/Fridaを起動確認'}, {name: 'AVDで手動ログイン'}],
+                                log: ['[Errno 48] address already in use']
+                            }, 'capture');
+                            const portState = document.querySelector('#jobState')?.innerText || '';
+                            const portNext = document.querySelector('#jobNextAction')?.innerText || '';
+
+                            return {capacityState, capacityNext, loginState, loginNext, portState, portNext};
+                        }\"\"\"
+                    )
                     metrics["errors"] = errors
                     metrics["duringRefreshCaptureText"] = during_refresh_capture
                     metrics["afterRefreshCaptureText"] = after_refresh_capture
                     metrics["collapsedLogText"] = collapsed_log_text
+                    metrics["errorSurface"] = error_surface
                     metrics["noHorizontalOverflow"] = metrics["scrollWidth"] <= metrics["clientWidth"] + 2
                     assert metrics["bodyLen"] > 500, (name, metrics)
                     assert metrics["hasSetup"] and metrics["hasCapture"] and metrics["hasSagi"], (name, metrics)
@@ -1202,6 +1252,14 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                     assert len(during_refresh_capture.strip()) > 20, (name, during_refresh_capture)
                     assert after_refresh_capture.strip(), (name, after_refresh_capture)
                     assert "ログは閉じています" in collapsed_log_text, (name, collapsed_log_text)
+                    assert "チェック用ログイン不足" in error_surface["capacityState"], (name, error_surface)
+                    assert "チェック対象は100件" in error_surface["capacityNext"], (name, error_surface)
+                    assert "あと1個" in error_surface["capacityNext"], (name, error_surface)
+                    assert "再ログインが必要" in error_surface["loginState"], (name, error_surface)
+                    assert "結果CSVは消さず" in error_surface["loginNext"], (name, error_surface)
+                    assert "途中から再開" in error_surface["loginNext"], (name, error_surface)
+                    assert "通信準備エラー" in error_surface["portState"], (name, error_surface)
+                    assert "Macを再起動" in error_surface["portNext"], (name, error_surface)
                     assert not errors, (name, errors)
                     viewport_results.append({"name": name, **metrics})
                     page.close()
