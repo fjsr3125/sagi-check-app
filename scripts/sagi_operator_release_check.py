@@ -1106,6 +1106,9 @@ def check_published_release_verifier_wiring() -> dict:
             "--download-dmg",
             "--retries 30",
             "--retry-delay 10",
+            "Delete failed GitHub Release",
+            "gh release delete",
+            "--cleanup-tag",
         ],
         "Makefile": [
             "sagi-operator-published-smoke",

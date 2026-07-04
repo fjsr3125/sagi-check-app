@@ -132,6 +132,14 @@ jobs:
           fi
           python3 scripts/verify_published_release.py "${args[@]}"
 
+      - name: Delete failed GitHub Release
+        if: failure()
+        run: |
+          tag="sagi-operator-$VERSION"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          fi
+
       - name: Write release summary
         run: |
           python3 - <<'PY'
