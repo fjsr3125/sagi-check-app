@@ -1011,15 +1011,32 @@
       return {done, total};
     }
 
+    function isBusyJobError(message) {
+      return String(message || '').startsWith('実行中のジョブがあります');
+    }
+
     function showJobInputError(message, target = 'capture') {
       const els = jobElements(target);
-      els.state.textContent = '入力確認';
-      els.state.className = 'mini-pill red';
-      els.next.textContent = message;
-      els.next.className = 'next-action red';
-      jobLogCache[target] = message;
+      const busy = isBusyJobError(message);
+      const displayMessage = busy
+        ? `${message}\nいま動いている処理が終わるまで待ってから、もう一度押してください。`
+        : message;
+      els.state.textContent = busy ? '別の処理が実行中' : '入力確認';
+      els.state.className = `mini-pill ${busy ? 'yellow' : 'red'}`;
+      els.next.textContent = displayMessage;
+      els.next.className = `next-action ${busy ? 'yellow' : 'red'}`;
+      jobLogCache[target] = displayMessage;
       updateJobLogVisibility(els, target);
-      renderJobProgress({status: 'failed', current_step: '入力確認', total_steps: 1, current_step_index: 1}, message, els.progress);
+      renderJobProgress(
+        {
+          status: busy ? 'running' : 'failed',
+          current_step: busy ? '待機中' : '入力確認',
+          total_steps: 1,
+          current_step_index: 1
+        },
+        displayMessage,
+        els.progress
+      );
     }
 
     async function copyVisibleJobLog(target = 'capture') {

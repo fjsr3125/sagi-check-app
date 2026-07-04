@@ -1039,7 +1039,9 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                     page.on("pageerror", lambda exc, errors=errors: errors.append(str(exc)))
                     page.on(
                         "console",
-                        lambda msg, errors=errors: errors.append(msg.text) if msg.type == "error" else None,
+                        lambda msg, errors=errors: errors.append(msg.text)
+                        if msg.type == "error" and "status of 409" not in msg.text
+                        else None,
                     )
                     capture_calls = {"count": 0}
 
@@ -1125,6 +1127,17 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                     )
                     page.route("**/api/capture/status", capture_status)
                     page.route(
+                        "**/api/capture/run-all",
+                        lambda route: route.fulfill(
+                            status=409,
+                            content_type="application/json",
+                            body=json.dumps(
+                                {"ok": False, "error": "実行中のジョブがあります: 初回セットアップ: まとめて実行"},
+                                ensure_ascii=False,
+                            ),
+                        ),
+                    )
+                    page.route(
                         "**/api/sagi/status**",
                         lambda route: fulfill_json(
                             route,
@@ -1142,6 +1155,17 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                                 "latest_results": [],
                                 "no_proxy": True,
                             },
+                        ),
+                    )
+                    page.route(
+                        "**/api/sagi/check",
+                        lambda route: route.fulfill(
+                            status=409,
+                            content_type="application/json",
+                            body=json.dumps(
+                                {"ok": False, "error": "実行中のジョブがあります: 詐欺チェック: 本番実行"},
+                                ensure_ascii=False,
+                            ),
                         ),
                     )
                     page.goto(f"http://127.0.0.1:{port}/?operator=1", wait_until="domcontentloaded", timeout=30000)
@@ -1185,6 +1209,28 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                                 log: ['line 1', 'line 2', 'line 3']
                             }, 'capture');
                             return document.querySelector('#jobLog')?.textContent || '';
+                        }\"\"\"
+                    )
+                    busy_surface = page.evaluate(
+                        \"\"\"async () => {
+                            await postJob('/api/sagi/check', {input_csv: 'logs/sagi_operator_input_20260705_120000.csv'}, 'sagi');
+                            const sagiBusyState = document.querySelector('#sagiJobState')?.innerText || '';
+                            const sagiBusyNext = document.querySelector('#sagiJobNextAction')?.innerText || '';
+                            const sagiBusyProgress = document.querySelector('#sagiJobProgress')?.innerText || '';
+
+                            await postJob('/api/capture/run-all', {username: 'sample', confirm_tethering: true}, 'capture');
+                            const captureBusyState = document.querySelector('#jobState')?.innerText || '';
+                            const captureBusyNext = document.querySelector('#jobNextAction')?.innerText || '';
+                            const captureBusyProgress = document.querySelector('#jobProgress')?.innerText || '';
+
+                            return {
+                                sagiBusyState,
+                                sagiBusyNext,
+                                sagiBusyProgress,
+                                captureBusyState,
+                                captureBusyNext,
+                                captureBusyProgress
+                            };
                         }\"\"\"
                     )
                     error_surface = page.evaluate(
@@ -1240,6 +1286,7 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                     metrics["duringRefreshCaptureText"] = during_refresh_capture
                     metrics["afterRefreshCaptureText"] = after_refresh_capture
                     metrics["collapsedLogText"] = collapsed_log_text
+                    metrics["busySurface"] = busy_surface
                     metrics["errorSurface"] = error_surface
                     metrics["noHorizontalOverflow"] = metrics["scrollWidth"] <= metrics["clientWidth"] + 2
                     assert metrics["bodyLen"] > 500, (name, metrics)
@@ -1255,6 +1302,14 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                     assert len(during_refresh_capture.strip()) > 20, (name, during_refresh_capture)
                     assert after_refresh_capture.strip(), (name, after_refresh_capture)
                     assert "ログは閉じています" in collapsed_log_text, (name, collapsed_log_text)
+                    assert "別の処理が実行中" in busy_surface["sagiBusyState"], (name, busy_surface)
+                    assert "入力確認" not in busy_surface["sagiBusyState"], (name, busy_surface)
+                    assert "詐欺チェック: 本番実行" in busy_surface["sagiBusyNext"], (name, busy_surface)
+                    assert "終わるまで待って" in busy_surface["sagiBusyNext"], (name, busy_surface)
+                    assert "待機中" in busy_surface["sagiBusyProgress"], (name, busy_surface)
+                    assert "別の処理が実行中" in busy_surface["captureBusyState"], (name, busy_surface)
+                    assert "初回セットアップ: まとめて実行" in busy_surface["captureBusyNext"], (name, busy_surface)
+                    assert "終わるまで待って" in busy_surface["captureBusyNext"], (name, busy_surface)
                     assert "チェック用ログイン不足" in error_surface["capacityState"], (name, error_surface)
                     assert "チェック対象は100件" in error_surface["capacityNext"], (name, error_surface)
                     assert "あと1個" in error_surface["capacityNext"], (name, error_surface)
