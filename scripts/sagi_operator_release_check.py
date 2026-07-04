@@ -1966,6 +1966,7 @@ def check_published_release_verifier_wiring() -> dict:
 def check_release_docs_guardrails() -> dict:
     docs = {
         "README.md": (ROOT / "README.md").read_text(encoding="utf-8"),
+        ".github/workflows/ci.yml": (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"),
         ".github/workflows/release.yml": (ROOT / ".github" / "workflows" / "release.yml").read_text(
             encoding="utf-8"
         ),
@@ -1977,6 +1978,8 @@ def check_release_docs_guardrails() -> dict:
     forbidden_patterns = {
         "fixed version DMG URL": r"releases/latest/download/UnariSagiOperator-\d{4}\.\d{2}\.\d{2}\.\d+\.dmg",
         "direct versioned DMG filename": r"https?://[^\s)]+UnariSagiOperator-\d{4}\.\d{2}\.\d{2}\.\d+\.dmg",
+        "Node20 checkout action": r"actions/checkout@v[1-6]\b",
+        "Node20 setup-python action": r"actions/setup-python@v[1-5]\b",
     }
     forbidden = {
         f"{rel_path}: {name}": re.findall(pattern, text)
@@ -1991,8 +1994,22 @@ def check_release_docs_guardrails() -> dict:
             "公開配布の正はGitHub Releaseと `latest.json`",
             "ローカルの `dist/` は作業用の生成物",
             "通常pushとメンバー配布は別",
+            "Releaseを作り直す時は新しい `YYYY.MM.DD.N` を指定する",
+        ],
+        ".github/workflows/ci.yml": [
+            "actions/checkout@v7",
+            "actions/setup-python@v6",
         ],
         ".github/workflows/release.yml": [
+            "actions/checkout@v7",
+            "actions/setup-python@v6",
+            "concurrency:",
+            "sagi-operator-release-${{ inputs.version }}",
+            "Validate release inputs",
+            "version must match YYYY.MM.DD.N",
+            "Release already exists",
+            "SAGI_RELEASE_CREATED=1",
+            "env.SAGI_RELEASE_CREATED == '1'",
             "公開配布の正はGitHub Releaseとlatest.jsonです",
             "ローカルのdist/は作業用生成物",
             "### latest.json",

@@ -94,6 +94,7 @@ make sagi-operator-release-package BASE_URL=https://example.com/unari-sagi-opera
 - `release_notes`: 更新内容を短く書く
 
 workflowはDMG/ZIP/latest.jsonをGitHub Releaseへアップロードする。アプリ内の更新確認は `latest.json` を見て「最新版あり/なし」を表示する。
+同じ `version` のReleaseが既にある場合、workflowは最初に止める。Releaseを作り直す時は新しい `YYYY.MM.DD.N` を指定する。
 workflowはアップロード後に公開URLの `latest.json` を読み直し、今回の `version` / `build` / DMG・ZIP URL と一致することも確認する。
 GitHub Release配布の場合は、公開DMGを実際にダウンロードしてSHA256、DMG検証、署名、内蔵versionも確認する。
 配布appにはPython wheelhouseを同梱し、メンバーMacの初回起動ではネットからPython依存を取りに行かない。

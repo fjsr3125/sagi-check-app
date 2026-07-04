@@ -18,6 +18,10 @@ name: Build member release
 permissions:
   contents: write
 
+concurrency:
+  group: sagi-operator-release-${{ inputs.version }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: macos-15
@@ -32,10 +36,24 @@ jobs:
       SAGI_OPERATOR_CAPTURE_TOOLS_URL: ${{ secrets.SAGI_OPERATOR_CAPTURE_TOOLS_URL }}
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
+
+      - name: Validate release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$VERSION" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$ ]]; then
+            echo "::error::version must match YYYY.MM.DD.N, got: $VERSION"
+            exit 1
+          fi
+          tag="sagi-operator-$VERSION"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release already exists: $tag. Use a new version."
+            exit 1
+          fi
 
       - name: Install smoke-test dependencies
         run: python3 -m pip install -r requirements-ci.txt
@@ -116,6 +134,7 @@ jobs:
             dist/sagi_operator_release/* \
             --title "Sagi Operator $VERSION" \
             --notes "$RELEASE_NOTES"
+          echo "SAGI_RELEASE_CREATED=1" >> "$GITHUB_ENV"
 
       - name: Verify published GitHub Release
         run: |
@@ -135,7 +154,7 @@ jobs:
           python3 scripts/verify_published_release.py "${args[@]}"
 
       - name: Delete failed GitHub Release
-        if: failure()
+        if: failure() && env.SAGI_RELEASE_CREATED == '1'
         run: |
           tag="sagi-operator-$VERSION"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
