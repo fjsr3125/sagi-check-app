@@ -28,10 +28,10 @@ sagi-operator-install-app:
 	SAGI_OPERATOR_REQUIRE_INSTAGRAM_PACKAGE=$${SAGI_OPERATOR_REQUIRE_INSTAGRAM_PACKAGE:-0} SAGI_OPERATOR_REQUIRE_MEMBERS_CONFIG=$${SAGI_OPERATOR_REQUIRE_MEMBERS_CONFIG:-0} SAGI_OPERATOR_REQUIRE_SHEETS_BRIDGE_CONFIG=$${SAGI_OPERATOR_REQUIRE_SHEETS_BRIDGE_CONFIG:-0} SAGI_OPERATOR_REQUIRE_CAPTURE_TOOLS=$${SAGI_OPERATOR_REQUIRE_CAPTURE_TOOLS:-0} $(PYTHON) scripts/install_sagi_operator_app.py
 
 sagi-operator-smoke:
-	$(PYTHON) scripts/sagi_operator_release_check.py
+	$(PYTHON) scripts/sagi_operator_release_check.py --member-first-launch
 
 sagi-operator-local-smoke:
-	SAGI_OPERATOR_ALLOW_MISSING_PRIVATE_ASSETS=1 $(PYTHON) scripts/sagi_operator_release_check.py --allow-missing-private-assets
+	SAGI_OPERATOR_ALLOW_MISSING_PRIVATE_ASSETS=1 $(PYTHON) scripts/sagi_operator_release_check.py --allow-missing-private-assets --member-first-launch
 
 sagi-operator-release-package:
 	SAGI_OPERATOR_REQUIRE_INSTAGRAM_PACKAGE=1 SAGI_OPERATOR_REQUIRE_MEMBERS_CONFIG=1 SAGI_OPERATOR_REQUIRE_SHEETS_BRIDGE_CONFIG=1 SAGI_OPERATOR_REQUIRE_CAPTURE_TOOLS=1 $(PYTHON) scripts/package_sagi_operator_release.py $(if $(VERSION),--version "$(VERSION)",) $(if $(BASE_URL),--base-url "$(BASE_URL)",)

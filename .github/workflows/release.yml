@@ -38,7 +38,7 @@ jobs:
           python-version: "3.14"
 
       - name: Install smoke-test dependencies
-        run: python3 -m pip install -r requirements.txt
+        run: python3 -m pip install -r requirements-ci.txt
       - name: Install browser smoke runtime
         run: python3 -m playwright install chromium
 
@@ -108,7 +108,7 @@ jobs:
           python3 scripts/package_sagi_operator_release.py "${args[@]}"
 
       - name: Release smoke check
-        run: python3 scripts/sagi_operator_release_check.py
+        run: python3 scripts/sagi_operator_release_check.py --member-first-launch
 
       - name: Upload GitHub Release artifacts
         run: |

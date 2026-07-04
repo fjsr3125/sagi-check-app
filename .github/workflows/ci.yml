@@ -14,7 +14,7 @@ jobs:
         with:
           python-version: "3.14"
       - name: Install smoke-test dependencies
-        run: python3 -m pip install -r requirements.txt
+        run: python3 -m pip install -r requirements-ci.txt
       - name: Install browser smoke runtime
         run: python3 -m playwright install chromium
       - name: Run local smoke checks

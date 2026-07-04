@@ -25,6 +25,7 @@ APP_RESOURCES = APP_DIR / "Contents" / "Resources"
 APP_ROOT = APP_DIR / "Contents" / "Resources" / "unari-src"
 APP_EXECUTABLE = APP_DIR / "Contents" / "MacOS" / "Unari Sagi Operator"
 BUNDLED_PYTHON = APP_DIR / "Contents" / "Resources" / "python" / "bin" / "python3"
+WHEELHOUSE = APP_DIR / "Contents" / "Resources" / "wheelhouse"
 INSTAGRAM_PACKAGE_SUFFIXES = {".apk", ".apkm", ".xapk"}
 TOOL_FILES = [
     "android-proxy-config.js",
@@ -187,6 +188,23 @@ def check_bundled_python() -> dict:
         return {"ok": result["ok"] and "Python 3.14" in output, "output": output, "result": result}
 
 
+def check_bundled_wheelhouse() -> dict:
+    if not WHEELHOUSE.exists():
+        return {"ok": False, "error": f"wheelhouse not found: {WHEELHOUSE}"}
+    wheels = sorted(path.name for path in WHEELHOUSE.glob("*.whl"))
+    required_names = ["Flask", "requests", "instagrapi", "frida", "mitmproxy"]
+    missing = [
+        name for name in required_names
+        if not any(wheel.lower().startswith(name.lower().replace("-", "_")) for wheel in wheels)
+    ]
+    return {
+        "ok": len(wheels) >= 40 and not missing,
+        "wheel_count": len(wheels),
+        "missing": missing,
+        "sample": wheels[:10],
+    }
+
+
 def check_sheets_bridge_bundle() -> dict:
     source_candidates = [
         _existing_path_from_env(SHEETS_BRIDGE_CONFIG_ENV),
@@ -341,6 +359,9 @@ def check_launcher_script() -> dict:
         "display dialog \"アプリ画面の起動に失敗しました。\" & linefeed",
         "required=[\"flask\",\"requests\",\"instagrapi\",\"googleapiclient\",\"frida\",\"mitmproxy\"]",
         "--retries 5 --timeout 60 --prefer-binary",
+        "WHEELHOUSE=",
+        "installing dependencies from bundled wheelhouse",
+        "--no-index --find-links",
         "PIP_PROGRESS_BAR=off",
     ]
     missing = [item for item in required if item not in text]
@@ -645,10 +666,15 @@ def check_member_first_launch() -> dict:
                     missing.append(str(required))
             launcher_logs = sorted(logs_dir.glob("launcher_*.log")) if logs_dir.exists() else []
             app_logs = sorted(logs_dir.glob("app_*.log")) if logs_dir.exists() else []
+            log_text = "\n".join(path.read_text(encoding="utf-8", errors="ignore") for path in launcher_logs)
             if not launcher_logs:
                 missing.append("launcher log")
             if not app_logs:
                 missing.append("app log")
+            if "installing dependencies from bundled wheelhouse" not in log_text:
+                missing.append("launcher did not install dependencies from bundled wheelhouse")
+            if "Downloading " in log_text:
+                missing.append("launcher downloaded Python dependencies during first launch")
             checks = (data or {}).get("checks", {})
             if "python3" in checks:
                 missing.append("setup status still exposes python3 requirement")
@@ -661,6 +687,7 @@ def check_member_first_launch() -> dict:
                 "root": data.get("root") if data else None,
                 "missing": missing,
                 "stdout_tail": proc.stdout[-500:],
+                "launcher_log_tail": log_text[-1200:],
             }
         finally:
             _kill_port(port)
@@ -714,15 +741,23 @@ def check_member_broken_venv_repair() -> dict:
                     time.sleep(1)
             logs_dir = home / "Library" / "Logs" / "UnariSagiOperator"
             launcher_logs = sorted(logs_dir.glob("launcher_*.log")) if logs_dir.exists() else []
+            log_text = "\n".join(path.read_text(encoding="utf-8", errors="ignore") for path in launcher_logs)
+            missing = []
+            if "installing dependencies from bundled wheelhouse" not in log_text:
+                missing.append("launcher did not install dependencies from bundled wheelhouse")
+            if "Downloading " in log_text:
+                missing.append("launcher downloaded Python dependencies during broken venv repair")
             return {
-                "ok": proc.returncode == 0 and postcheck["ok"] and data is not None and bool(launcher_logs),
+                "ok": proc.returncode == 0 and postcheck["ok"] and data is not None and bool(launcher_logs) and not missing,
                 "returncode": proc.returncode,
                 "postcheck_ok": postcheck["ok"],
                 "setup_status_ok": data is not None,
                 "launcher_log_count": len(launcher_logs),
+                "missing": missing,
                 "stdout_tail": proc.stdout[-800:],
                 "stderr_tail": proc.stderr[-800:],
                 "postcheck_stderr_tail": postcheck.get("stderr", "")[-800:],
+                "launcher_log_tail": log_text[-1200:],
             }
         finally:
             _kill_port(port)
@@ -1360,8 +1395,10 @@ def check_app_build_lock() -> dict:
 def check_published_release_verifier_wiring() -> dict:
     files = {
         ".github/workflows/release.yml": [
+            "requirements-ci.txt",
             "Verify published GitHub Release",
             "scripts/verify_published_release.py",
+            "scripts/sagi_operator_release_check.py --member-first-launch",
             "releases/latest/download/latest.json",
             "--version \"$VERSION\"",
             "--build \"$build\"",
@@ -1376,10 +1413,13 @@ def check_published_release_verifier_wiring() -> dict:
         "Makefile": [
             "sagi-operator-published-smoke",
             "scripts/verify_published_release.py",
+            "scripts/sagi_operator_release_check.py --member-first-launch",
             "PUBLISHED_LATEST_URL",
             "PUBLISHED_DOWNLOAD_DMG",
         ],
         "README.md": [
+            "requirements-ci.txt",
+            "Python wheelhouseを同梱",
             "sagi-operator-published-smoke",
             "公開URLの `latest.json` を読み直し",
             "公開DMGを実際にダウンロード",
@@ -1853,6 +1893,7 @@ def main() -> int:
         step("bundle Python cache exclusion", check_bundle_python_caches(), results, quiet=quiet)
         step("app code signature", check_app_signature(), results, quiet=quiet)
         step("bundled Python runtime", check_bundled_python(), results, quiet=quiet)
+        step("bundled Python wheelhouse", check_bundled_wheelhouse(), results, quiet=quiet)
         step("bundle Python cache exclusion after Python check", check_bundle_python_caches(), results, quiet=quiet)
         step("app code signature after Python check", check_app_signature(), results, quiet=quiet)
         step("bundle secret exclusion", check_bundle_secrets(), results, quiet=quiet)

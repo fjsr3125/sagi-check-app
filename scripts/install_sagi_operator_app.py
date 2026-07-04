@@ -21,6 +21,7 @@ MACOS = CONTENTS / "MacOS"
 RESOURCES = CONTENTS / "Resources"
 BUNDLED_SRC = RESOURCES / "unari-src"
 BUNDLED_PYTHON = RESOURCES / "python"
+WHEELHOUSE = RESOURCES / "wheelhouse"
 EXECUTABLE = MACOS / "Unari Sagi Operator"
 
 PYTHON_RUNTIME_URL = "https://github.com/astral-sh/python-build-standalone/releases/download/20260623/cpython-3.14.6%2B20260623-aarch64-apple-darwin-install_only_stripped.tar.gz"
@@ -380,6 +381,49 @@ def copy_python_runtime() -> None:
         shutil.copytree(extracted, BUNDLED_PYTHON)
 
 
+def build_wheelhouse() -> None:
+    if WHEELHOUSE.exists():
+        shutil.rmtree(WHEELHOUSE)
+    WHEELHOUSE.mkdir(parents=True, exist_ok=True)
+    python = BUNDLED_PYTHON / "bin" / "python3"
+    if not python.exists():
+        raise RuntimeError(f"bundled python not found: {python}")
+    cache = ROOT / "dist" / "pip-cache"
+    cache.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env.update(
+        {
+            "PIP_CACHE_DIR": str(cache),
+            "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+            "PIP_NO_INPUT": "1",
+            "PIP_PROGRESS_BAR": "off",
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+    )
+    subprocess.run([str(python), "-m", "ensurepip", "--upgrade"], cwd=ROOT, env=env, check=True, timeout=180)
+    subprocess.run(
+        [
+            str(python),
+            "-m",
+            "pip",
+            "wheel",
+            "--wheel-dir",
+            str(WHEELHOUSE),
+            "--prefer-binary",
+            "-r",
+            str(ROOT / "requirements.txt"),
+        ],
+        cwd=ROOT,
+        env=env,
+        check=True,
+        timeout=1200,
+    )
+    wheels = sorted(WHEELHOUSE.glob("*.whl"))
+    if not wheels:
+        raise RuntimeError("wheelhouse build produced no wheels")
+    print(f"bundled Python wheels: {len(wheels)} files")
+
+
 def remove_python_caches(root: Path) -> None:
     if not root.exists():
         return
@@ -435,6 +479,7 @@ def main() -> int:
         copy_source()
         copy_instagram_package()
         copy_python_runtime()
+        build_wheelhouse()
         remove_python_caches(BUNDLED_SRC)
         remove_python_caches(BUNDLED_PYTHON)
 
@@ -475,6 +520,7 @@ PORT="${OPS_PORT:-5070}"
 SELF_DIR="${0:A:h}"
 BUNDLE_SRC="${SELF_DIR}/../Resources/unari-src"
 BUNDLED_PY="${SELF_DIR}/../Resources/python/bin/python3"
+WHEELHOUSE="${SELF_DIR}/../Resources/wheelhouse"
 
 export PYTHONDONTWRITEBYTECODE=1
 
@@ -486,6 +532,7 @@ echo "== Unari Sagi Operator launcher $(date '+%Y-%m-%d %H:%M:%S') =="
 echo "APP_ROOT=$APP_ROOT"
 echo "BUNDLE_SRC=$BUNDLE_SRC"
 echo "BUNDLED_PY=$BUNDLED_PY"
+echo "WHEELHOUSE=$WHEELHOUSE"
 
 fail() {
   local msg="$1"
@@ -505,8 +552,15 @@ APPLESCRIPT
 
 install_python_deps() {
   "$PY" -m ensurepip --upgrade || return 1
-  PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_INPUT=1 PIP_DEFAULT_TIMEOUT=60 PIP_PROGRESS_BAR=off \
-    "$PY" -m pip install --retries 5 --timeout 60 --prefer-binary -r "$APP_ROOT/requirements.txt"
+  if [[ -d "$WHEELHOUSE" ]] && find "$WHEELHOUSE" -name '*.whl' -print -quit | grep -q .; then
+    echo "installing dependencies from bundled wheelhouse"
+    PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_INPUT=1 PIP_PROGRESS_BAR=off \
+      "$PY" -m pip install --no-index --find-links "$WHEELHOUSE" -r "$APP_ROOT/requirements.txt"
+  else
+    echo "bundled wheelhouse is missing; installing dependencies from internet"
+    PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_INPUT=1 PIP_DEFAULT_TIMEOUT=60 PIP_PROGRESS_BAR=off \
+      "$PY" -m pip install --retries 5 --timeout 60 --prefer-binary -r "$APP_ROOT/requirements.txt"
+  fi
 }
 
 rsync -a --delete \
