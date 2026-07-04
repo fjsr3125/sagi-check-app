@@ -1138,6 +1138,39 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                         ),
                     )
                     page.route(
+                        "**/api/capture/verify",
+                        lambda route: route.fulfill(
+                            status=200,
+                            content_type="application/json",
+                            body=json.dumps(
+                                {
+                                    "ok": True,
+                                    "job": {
+                                        "id": "poll-fail",
+                                        "kind": "capture",
+                                        "label": "チェック用ログイン verify: sample",
+                                        "status": "running",
+                                        "outcome": "running",
+                                        "current_step": "チェック用ログイン verify",
+                                        "current_step_index": 1,
+                                        "total_steps": 1,
+                                        "commands": [{"name": "チェック用ログイン verify"}],
+                                        "log": ["polling starts"],
+                                    },
+                                },
+                                ensure_ascii=False,
+                            ),
+                        ),
+                    )
+                    page.route(
+                        "**/api/jobs/poll-fail",
+                        lambda route: route.fulfill(
+                            status=500,
+                            content_type="text/plain",
+                            body="job polling failed",
+                        ),
+                    )
+                    page.route(
                         "**/api/sagi/status**",
                         lambda route: fulfill_json(
                             route,
@@ -1250,6 +1283,16 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                             return {state, next, progress};
                         }\"\"\"
                     )
+                    poll_surface = page.evaluate(
+                        \"\"\"async () => {
+                            await postJob('/api/capture/verify', {username: 'sample'}, 'capture');
+                            await new Promise(resolve => setTimeout(resolve, 3200));
+                            const state = document.querySelector('#jobState')?.innerText || '';
+                            const next = document.querySelector('#jobNextAction')?.innerText || '';
+                            const progress = document.querySelector('#jobProgress')?.innerText || '';
+                            return {state, next, progress};
+                        }\"\"\"
+                    )
                     error_surface = page.evaluate(
                         \"\"\"() => {
                             const capacity = 'チェック対象は100件です。1つのチェック用ログインで1日50件まで確認できます。今回は2個必要ですが、今使えるのは1個です。あと1個、新しいInstagramアカウントでチェック用ログインを作ってください。';
@@ -1305,6 +1348,7 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                     metrics["collapsedLogText"] = collapsed_log_text
                     metrics["busySurface"] = busy_surface
                     metrics["transportSurface"] = transport_surface
+                    metrics["pollSurface"] = poll_surface
                     metrics["errorSurface"] = error_surface
                     metrics["noHorizontalOverflow"] = metrics["scrollWidth"] <= metrics["clientWidth"] + 2
                     assert metrics["bodyLen"] > 500, (name, metrics)
@@ -1332,6 +1376,10 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                     assert "正しい応答" in transport_surface["next"], (name, transport_surface)
                     assert "HTTP 500" in transport_surface["next"], (name, transport_surface)
                     assert "通信確認" in transport_surface["progress"], (name, transport_surface)
+                    assert "通信エラー" in poll_surface["state"], (name, poll_surface)
+                    assert "実行状況を取得" in poll_surface["next"], (name, poll_surface)
+                    assert "HTTP 500" in poll_surface["next"], (name, poll_surface)
+                    assert "通信確認" in poll_surface["progress"], (name, poll_surface)
                     assert "チェック用ログイン不足" in error_surface["capacityState"], (name, error_surface)
                     assert "チェック対象は100件" in error_surface["capacityNext"], (name, error_surface)
                     assert "あと1個" in error_surface["capacityNext"], (name, error_surface)

@@ -834,6 +834,32 @@
       watchJob(jobId, 'capture');
     }
 
+    function clearJobTracking(target, timer) {
+      if (timer) clearInterval(timer);
+      if (target === 'setup') {
+        setupJobTimer = null;
+        setupJobId = null;
+      } else if (target === 'sagi') {
+        sagiJobTimer = null;
+        sagiJobId = null;
+      } else {
+        captureJobTimer = null;
+        captureJobId = null;
+      }
+    }
+
+    function refreshAfterJob(target) {
+      if (target === 'setup') {
+        loadSetupStatus();
+        loadSagiStatus();
+      } else if (target === 'sagi') {
+        loadSagiStatus();
+      } else {
+        loadCaptureStatus();
+        loadSagiStatus();
+      }
+    }
+
     function watchJob(jobId, target = 'capture') {
       if (target === 'setup') {
         setupJobId = jobId;
@@ -846,31 +872,32 @@
         if (captureJobTimer) clearInterval(captureJobTimer);
       }
       const timer = setInterval(async () => {
-        const res = await fetch(`/api/jobs/${jobId}`);
-        const data = await res.json();
-        if (!data.ok) return;
-        renderJob(data.job, target);
-        if (data.job.status !== 'running') {
-          clearInterval(timer);
-          if (target === 'setup') {
-            setupJobTimer = null;
-            setupJobId = null;
-          } else if (target === 'sagi') {
-            sagiJobTimer = null;
-            sagiJobId = null;
-          } else {
-            captureJobTimer = null;
-            captureJobId = null;
+        try {
+          const res = await fetch(`/api/jobs/${jobId}`);
+          const raw = await res.text();
+          let data = null;
+          try {
+            data = raw ? JSON.parse(raw) : {};
+          } catch (_) {
+            data = null;
           }
-          if (target === 'setup') {
-            loadSetupStatus();
-            loadSagiStatus();
-          } else if (target === 'sagi') {
-            loadSagiStatus();
-          } else {
-            loadCaptureStatus();
-            loadSagiStatus();
+          if (!data || typeof data !== 'object') {
+            throw new Error(`HTTP ${res.status || '-'}`);
           }
+          if (!data.ok) {
+            throw new Error(data.error || `HTTP ${res.status || '-'}`);
+          }
+          if (!data.job) {
+            throw new Error('ジョブ情報が空です');
+          }
+          renderJob(data.job, target);
+          if (data.job.status !== 'running') {
+            clearJobTracking(target, timer);
+            refreshAfterJob(target);
+          }
+        } catch (e) {
+          clearJobTracking(target, timer);
+          showJobTransportError(`実行状況を取得できませんでした。状態更新を押して、今の状態を確認してください。${String(e.message || e)}`, target);
         }
       }, target === 'sagi' ? 4000 : 2500);
       if (target === 'setup') {
