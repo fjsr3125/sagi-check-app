@@ -1044,6 +1044,8 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                         else None,
                     )
                     capture_calls = {"count": 0}
+                    capture_status_mode = {"fail": False}
+                    sagi_status_mode = {"fail": False}
 
                     def fulfill_json(route, payload):
                         route.fulfill(
@@ -1053,6 +1055,13 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                         )
 
                     def capture_status(route):
+                        if capture_status_mode["fail"]:
+                            route.fulfill(
+                                status=500,
+                                content_type="text/html",
+                                body="<html><body>capture status failed</body></html>",
+                            )
+                            return
                         capture_calls["count"] += 1
                         if capture_calls["count"] > 1:
                             time.sleep(0.8)
@@ -1079,6 +1088,32 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                                     "total_steps": 7,
                                     "log": ["setup internal should not leak into capture panel"],
                                 },
+                            },
+                        )
+
+                    def sagi_status(route):
+                        if sagi_status_mode["fail"]:
+                            route.fulfill(
+                                status=500,
+                                content_type="text/html",
+                                body="<html><body>sagi status failed</body></html>",
+                            )
+                            return
+                        fulfill_json(
+                            route,
+                            {
+                                "ok": True,
+                                "input_count": 100,
+                                "needed_sessions": 2,
+                                "healthy_sessions": 1,
+                                "probe_sessions": None,
+                                "raw_count": {"ok": True, "output": "1"},
+                                "probe_count": {"ok": None, "output": "在庫確認ボタンでprobeします"},
+                                "sessions": {"ok": True, "output": "合計: 1件"},
+                                "sheets_bridge": {"ok": True, "output": "{\\"backend\\":\\"apps-script\\",\\"ok\\":true}"},
+                                "latest_inputs": [],
+                                "latest_results": [],
+                                "no_proxy": True,
                             },
                         )
 
@@ -1170,26 +1205,7 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                             body="job polling failed",
                         ),
                     )
-                    page.route(
-                        "**/api/sagi/status**",
-                        lambda route: fulfill_json(
-                            route,
-                            {
-                                "ok": True,
-                                "input_count": 100,
-                                "needed_sessions": 2,
-                                "healthy_sessions": 1,
-                                "probe_sessions": None,
-                                "raw_count": {"ok": True, "output": "1"},
-                                "probe_count": {"ok": None, "output": "在庫確認ボタンでprobeします"},
-                                "sessions": {"ok": True, "output": "合計: 1件"},
-                                "sheets_bridge": {"ok": True, "output": "{\\"backend\\":\\"apps-script\\",\\"ok\\":true}"},
-                                "latest_inputs": [],
-                                "latest_results": [],
-                                "no_proxy": True,
-                            },
-                        ),
-                    )
+                    page.route("**/api/sagi/status**", sagi_status)
                     page.route(
                         "**/api/sagi/check",
                         lambda route: route.fulfill(
@@ -1236,6 +1252,16 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                     during_refresh_capture = page.locator("#captureStatus").inner_text()
                     page.wait_for_timeout(1000)
                     after_refresh_capture = page.locator("#captureStatus").inner_text()
+                    capture_status_mode["fail"] = True
+                    page.evaluate("() => { loadCaptureStatus(); }")
+                    page.wait_for_timeout(1000)
+                    capture_status_error = page.locator("#captureStatus").inner_text()
+                    capture_status_mode["fail"] = False
+                    sagi_status_mode["fail"] = True
+                    page.evaluate("() => { loadSagiStatus(); }")
+                    page.wait_for_timeout(1000)
+                    sagi_status_error = page.locator("#sagiStatus").inner_text()
+                    sagi_status_mode["fail"] = False
                     collapsed_log_text = page.evaluate(
                         \"\"\"() => {
                             renderJob({
@@ -1350,6 +1376,10 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                     metrics["transportSurface"] = transport_surface
                     metrics["pollSurface"] = poll_surface
                     metrics["errorSurface"] = error_surface
+                    metrics["statusFailureSurface"] = {
+                        "capture": capture_status_error,
+                        "sagi": sagi_status_error,
+                    }
                     metrics["noHorizontalOverflow"] = metrics["scrollWidth"] <= metrics["clientWidth"] + 2
                     assert metrics["bodyLen"] > 500, (name, metrics)
                     assert metrics["hasSetup"] and metrics["hasCapture"] and metrics["hasSagi"], (name, metrics)
@@ -1380,6 +1410,12 @@ with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
                     assert "実行状況を取得" in poll_surface["next"], (name, poll_surface)
                     assert "HTTP 500" in poll_surface["next"], (name, poll_surface)
                     assert "通信確認" in poll_surface["progress"], (name, poll_surface)
+                    assert "状態取得に失敗" in capture_status_error, (name, capture_status_error)
+                    assert "状態取得に失敗" in sagi_status_error, (name, sagi_status_error)
+                    assert "SyntaxError" not in capture_status_error, (name, capture_status_error)
+                    assert "SyntaxError" not in sagi_status_error, (name, sagi_status_error)
+                    assert "capture status failed" not in capture_status_error, (name, capture_status_error)
+                    assert "sagi status failed" not in sagi_status_error, (name, sagi_status_error)
                     assert "チェック用ログイン不足" in error_surface["capacityState"], (name, error_surface)
                     assert "チェック対象は100件" in error_surface["capacityNext"], (name, error_surface)
                     assert "あと1個" in error_surface["capacityNext"], (name, error_surface)

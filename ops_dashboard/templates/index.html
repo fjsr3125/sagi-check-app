@@ -314,10 +314,45 @@
       el.classList.remove('is-refreshing');
     }
 
+    async function fetchJsonOrThrow(url, options = {}) {
+      const res = await fetch(url, options);
+      const raw = await res.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch (_) {
+        throw new Error(`HTTP ${res.status || '-'} の応答を読み取れませんでした`);
+      }
+      if (!res.ok) {
+        const message = data && typeof data === 'object' ? (data.message || data.error) : '';
+        throw new Error(message || `HTTP ${res.status || '-'}`);
+      }
+      return data;
+    }
+
+    function renderStatusLoadError(el) {
+      if (!el) return;
+      el.innerHTML = '<div class="error">状態取得に失敗しました。画面を更新してから、もう一度試してください。</div>';
+      markLoaded(el);
+    }
+
+    function renderOverallLoadError() {
+      const generated = document.getElementById('generated');
+      if (generated) generated.textContent = '状態取得に失敗しました';
+      renderOverall({
+        level: 'yellow',
+        level_counts: {red: 0, yellow: 1, green: 0},
+        top_actions: ['状態取得に失敗しました。画面を更新してから、もう一度試してください。']
+      });
+    }
+
     async function loadStatus() {
-      const res = await fetch('/api/status');
-      const data = await res.json();
-      render(data);
+      try {
+        const data = await fetchJsonOrThrow('/api/status');
+        render(data);
+      } catch (e) {
+        renderOverallLoadError();
+      }
     }
 
     async function refreshSnapshot() {
@@ -325,9 +360,10 @@
       btn.disabled = true;
       btn.textContent = '更新中...';
       try {
-        const res = await fetch('/api/refresh', {method: 'POST'});
-        const payload = await res.json();
+        const payload = await fetchJsonOrThrow('/api/refresh', {method: 'POST'});
         render(payload.data);
+      } catch (e) {
+        renderOverallLoadError();
       } finally {
         btn.disabled = false;
         btn.textContent = '手動更新';
@@ -339,8 +375,7 @@
       const sagiHint = document.getElementById('sagiUpdateHint');
       if (!el && !sagiHint) return;
       try {
-        const res = await fetch('/api/update/status');
-        const data = await res.json();
+        const data = await fetchJsonOrThrow('/api/update/status');
         renderUpdateStatus(data, el, sagiHint);
       } catch (e) {
         const data = {ok: false, enabled: true, update_available: false, message: 'ネット接続を確認してください。作業は続けられます。'};
@@ -428,8 +463,7 @@
         button.textContent = 'DMGを準備中...';
       }
       try {
-        const res = await fetch('/api/update/download', {method: 'POST'});
-        const data = await res.json();
+        const data = await fetchJsonOrThrow('/api/update/download', {method: 'POST'});
         if (!data.ok) throw new Error(data.message || '更新に失敗しました');
         if (button) button.textContent = 'DMGを開きました';
         const el = document.getElementById('updateStatus');
@@ -470,8 +504,7 @@
       const el = document.getElementById('setupStatus');
       showLoadingIfFirst(el);
       try {
-        const res = await fetch('/api/setup/status');
-        const data = await res.json();
+        const data = await fetchJsonOrThrow('/api/setup/status');
         const cards = Object.entries(data.checks || {}).map(([key, item]) => `
           <div class="mini-card ${item.ok ? 'green' : 'red'}">
             <b>${escapeHtml(setupLabel(key))}</b>
@@ -489,8 +522,7 @@
           if (data.latest_job.status === 'running') watchJob(data.latest_job.id, 'setup');
         }
       } catch (e) {
-        el.innerHTML = `<div class="error">${escapeHtml(String(e))}</div>`;
-        markLoaded(el);
+        renderStatusLoadError(el);
       }
     }
 
@@ -523,8 +555,7 @@
       const el = document.getElementById('captureStatus');
       showLoadingIfFirst(el);
       try {
-        const res = await fetch('/api/capture/status');
-        const data = await res.json();
+        const data = await fetchJsonOrThrow('/api/capture/status');
         renderCaptureStatus(data);
         if (data.latest_job && !captureJobId) {
           renderJob(data.latest_job);
@@ -533,8 +564,7 @@
           renderCaptureSetupBlocked(data.setup_running);
         }
       } catch (e) {
-        el.innerHTML = `<div class="error">${escapeHtml(String(e))}</div>`;
-        markLoaded(el);
+        renderStatusLoadError(el);
       }
     }
 
@@ -640,8 +670,7 @@
       const el = document.getElementById('sagiStatus');
       showLoadingIfFirst(el);
       try {
-        const res = await fetch(url);
-        const data = await res.json();
+        const data = await fetchJsonOrThrow(url);
         latestSagiStatus = data;
         const enough = data.needed_sessions === null || data.healthy_sessions === null ? null : data.healthy_sessions >= data.needed_sessions;
         const notStarted = data.input_count === null;
@@ -670,8 +699,7 @@
         markLoaded(el);
         renderCsvPicker(data);
       } catch (e) {
-        el.innerHTML = `<div class="error">${escapeHtml(String(e))}</div>`;
-        markLoaded(el);
+        renderStatusLoadError(el);
       }
     }
 
