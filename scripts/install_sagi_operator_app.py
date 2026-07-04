@@ -168,7 +168,7 @@ def copy_sheets_bridge_config() -> None:
         if candidate and candidate.exists():
             copy_file(candidate, BUNDLED_SRC / "config" / "sagi_sheets_bridge.json")
             print(f"bundled Sheets bridge config: {candidate}")
-        return
+            return
     if os.environ.get(REQUIRE_SHEETS_BRIDGE_CONFIG_ENV, "").strip() == "1":
         raise FileNotFoundError(
             "sagi_sheets_bridge.json が見つかりません。"
