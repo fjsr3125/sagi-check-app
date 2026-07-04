@@ -5,6 +5,7 @@ import argparse
 import fcntl
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -938,6 +939,109 @@ def check_dashboard_js_syntax() -> dict:
     }
 
 
+def check_dashboard_browser_smoke() -> dict:
+    code = """
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from urllib.request import urlopen
+
+from playwright.sync_api import sync_playwright
+
+root = Path.cwd()
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    sock.bind(("127.0.0.1", 0))
+    port = int(sock.getsockname()[1])
+
+with TemporaryDirectory(prefix="unari_dashboard_browser_smoke_") as td:
+    env = os.environ.copy()
+    env.update(
+        {
+            "OPS_HOST": "127.0.0.1",
+            "OPS_PORT": str(port),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONPYCACHEPREFIX": str(Path(td) / "pycache"),
+        }
+    )
+    proc = subprocess.Popen(
+        [str(root / "venv" / "bin" / "python") if (root / "venv" / "bin" / "python").exists() else sys.executable, "-m", "ops_dashboard.app"],
+        cwd=root,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        deadline = time.time() + 25
+        while time.time() < deadline:
+            try:
+                with urlopen(f"http://127.0.0.1:{port}/api/runtime/status", timeout=2) as res:
+                    if int(res.status) == 200:
+                        break
+            except Exception:
+                time.sleep(0.5)
+        else:
+            raise AssertionError("dashboard server did not start")
+
+        viewport_results = []
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                for name, viewport in [
+                    ("desktop", {"width": 1366, "height": 900}),
+                    ("mobile", {"width": 390, "height": 844}),
+                ]:
+                    page = browser.new_page(viewport=viewport)
+                    errors = []
+                    page.on("pageerror", lambda exc, errors=errors: errors.append(str(exc)))
+                    page.on(
+                        "console",
+                        lambda msg, errors=errors: errors.append(msg.text) if msg.type == "error" else None,
+                    )
+                    page.goto(f"http://127.0.0.1:{port}/?operator=1", wait_until="domcontentloaded", timeout=30000)
+                    page.wait_for_selector("text=Unari Sagi Operator", timeout=10000)
+                    page.wait_for_selector("text=チェック用ログイン追加", timeout=10000)
+                    page.wait_for_selector("text=① まず件数を確認（本番はまだ走りません）", timeout=10000)
+                    page.wait_for_timeout(5000)
+                    metrics = page.evaluate(
+                        \"\"\"() => ({
+                            bodyLen: document.body.innerText.trim().length,
+                            scrollWidth: document.documentElement.scrollWidth,
+                            clientWidth: document.documentElement.clientWidth,
+                            hasSetup: document.body.innerText.includes('初回セットアップ'),
+                            hasCapture: document.body.innerText.includes('チェック用ログイン追加'),
+                            hasSagi: document.body.innerText.includes('詐欺チェック実行'),
+                            hasMainButton: document.body.innerText.includes('① まず件数を確認（本番はまだ走りません）')
+                        })\"\"\"
+                    )
+                    metrics["errors"] = errors
+                    metrics["noHorizontalOverflow"] = metrics["scrollWidth"] <= metrics["clientWidth"] + 2
+                    assert metrics["bodyLen"] > 500, (name, metrics)
+                    assert metrics["hasSetup"] and metrics["hasCapture"] and metrics["hasSagi"], (name, metrics)
+                    assert metrics["hasMainButton"], (name, metrics)
+                    assert metrics["noHorizontalOverflow"], (name, metrics)
+                    assert not errors, (name, errors)
+                    viewport_results.append({"name": name, **metrics})
+                    page.close()
+            finally:
+                browser.close()
+        print(json.dumps({"ok": True, "port": port, "viewports": viewport_results}, ensure_ascii=False))
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+"""
+    python = str(ROOT / "venv" / "bin" / "python") if (ROOT / "venv" / "bin" / "python").exists() else sys.executable
+    return run([python, "-c", code], timeout=120)
+
+
 def check_update_download_flow() -> dict:
     code = """
 import hashlib
@@ -1301,6 +1405,43 @@ def check_published_release_verifier_wiring() -> dict:
         if absent:
             missing[rel_path] = absent
     return {"ok": not missing, "missing": missing}
+
+
+def check_release_docs_guardrails() -> dict:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+
+    forbidden_patterns = {
+        "README fixed version DMG URL": r"releases/latest/download/UnariSagiOperator-\d{4}\.\d{2}\.\d{2}\.\d+\.dmg",
+        "README direct versioned DMG filename": r"https?://[^\s)]+UnariSagiOperator-\d{4}\.\d{2}\.\d{2}\.\d+\.dmg",
+    }
+    forbidden = {
+        name: re.findall(pattern, readme)
+        for name, pattern in forbidden_patterns.items()
+        if re.findall(pattern, readme)
+    }
+
+    required = {
+        "README.md": [
+            "READMEには固定のDMG URLを書かない",
+            "公開配布の正はGitHub Releaseと `latest.json`",
+            "ローカルの `dist/` は作業用の生成物",
+            "通常pushとメンバー配布は別",
+        ],
+        ".github/workflows/release.yml": [
+            "公開配布の正はGitHub Releaseとlatest.jsonです",
+            "ローカルのdist/は作業用生成物",
+            "### latest.json",
+        ],
+    }
+    missing: dict[str, list[str]] = {}
+    for rel_path, needles in required.items():
+        text = readme if rel_path == "README.md" else workflow
+        absent = [needle for needle in needles if needle not in text]
+        if absent:
+            missing[rel_path] = absent
+
+    return {"ok": not forbidden and not missing, "forbidden": forbidden, "missing": missing}
 
 
 def check_capture_diagnostics() -> dict:
@@ -1690,6 +1831,7 @@ def main() -> int:
         step("shell syntax", check_shell_syntax(), results, quiet=quiet)
         step("Flask API smoke", check_flask_api(), results, quiet=quiet)
         step("dashboard JS syntax", check_dashboard_js_syntax(), results, quiet=quiet)
+        step("dashboard browser smoke", check_dashboard_browser_smoke(), results, quiet=quiet)
         step("update download flow", check_update_download_flow(), results, quiet=quiet)
         step("sagi sheet job wiring", check_sagi_sheet_job_wiring(), results, quiet=quiet)
         step("setup job wiring", check_setup_job_wiring(), results, quiet=quiet)
@@ -1697,6 +1839,7 @@ def main() -> int:
         step("launcher stale server restart", check_launcher_stale_server_restart(), results, quiet=quiet)
         step("app build lock", check_app_build_lock(), results, quiet=quiet)
         step("published release verifier wiring", check_published_release_verifier_wiring(), results, quiet=quiet)
+        step("release docs guardrails", check_release_docs_guardrails(), results, quiet=quiet)
         step("capture diagnostics", check_capture_diagnostics(), results, quiet=quiet)
         step("accounts config bootstrap", check_accounts_config_bootstrap(), results, quiet=quiet)
         step("build Unari Sagi Operator.app", run(["make", "sagi-operator-install-app"], timeout=300), results, quiet=quiet)

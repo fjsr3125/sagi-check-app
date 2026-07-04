@@ -39,6 +39,8 @@ jobs:
 
       - name: Install smoke-test dependencies
         run: python3 -m pip install -r requirements.txt
+      - name: Install browser smoke runtime
+        run: python3 -m playwright install chromium
 
       - name: Prepare private release assets
         shell: bash

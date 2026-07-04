@@ -15,5 +15,7 @@ jobs:
           python-version: "3.14"
       - name: Install smoke-test dependencies
         run: python3 -m pip install -r requirements.txt
+      - name: Install browser smoke runtime
+        run: python3 -m playwright install chromium
       - name: Run local smoke checks
         run: make sagi-operator-local-smoke
