@@ -14,6 +14,7 @@ import tempfile
 import time
 import urllib.request
 import zipfile
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
@@ -879,6 +880,64 @@ print('api ok')
     return run([python, "-c", code], timeout=120)
 
 
+class _InlineScriptCollector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self._in_inline_script = False
+        self._current: list[str] = []
+        self.scripts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "script":
+            return
+        attr_names = {name.lower() for name, _value in attrs}
+        if "src" in attr_names:
+            return
+        self._in_inline_script = True
+        self._current = []
+
+    def handle_data(self, data: str) -> None:
+        if self._in_inline_script:
+            self._current.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() == "script" and self._in_inline_script:
+            self.scripts.append("".join(self._current))
+            self._current = []
+            self._in_inline_script = False
+
+
+def check_dashboard_js_syntax() -> dict:
+    html_path = ROOT / "ops_dashboard" / "templates" / "index.html"
+    html = html_path.read_text(encoding="utf-8")
+    parser = _InlineScriptCollector()
+    parser.feed(html)
+    if not parser.scripts:
+        return {"ok": False, "error": "no inline dashboard script found"}
+    node = shutil.which("node")
+    if node is None:
+        return {"ok": True, "skipped": "node command not found; dashboard JS syntax check skipped locally"}
+    checks: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory(prefix="unari_dashboard_js_check_") as td:
+        for index, script in enumerate(parser.scripts, start=1):
+            js_path = Path(td) / f"dashboard_inline_{index}.js"
+            js_path.write_text(script, encoding="utf-8")
+            checks.append(run([node, "--check", str(js_path)], timeout=60))
+    return {
+        "ok": all(item.get("ok") for item in checks),
+        "script_count": len(parser.scripts),
+        "checked": [
+            {
+                "cmd": item.get("cmd"),
+                "ok": item.get("ok"),
+                "stdout_tail": item.get("stdout", "")[-500:],
+                "stderr_tail": item.get("stderr", "")[-500:],
+            }
+            for item in checks
+        ],
+    }
+
+
 def check_sagi_sheet_job_wiring() -> dict:
     code = """
 from ops_dashboard import check_jobs
@@ -1530,6 +1589,7 @@ def main() -> int:
         step("make check", run(["make", "check"], timeout=300), results, quiet=quiet)
         step("shell syntax", check_shell_syntax(), results, quiet=quiet)
         step("Flask API smoke", check_flask_api(), results, quiet=quiet)
+        step("dashboard JS syntax", check_dashboard_js_syntax(), results, quiet=quiet)
         step("sagi sheet job wiring", check_sagi_sheet_job_wiring(), results, quiet=quiet)
         step("setup job wiring", check_setup_job_wiring(), results, quiet=quiet)
         step("related log stitching", check_related_log_stitching(), results, quiet=quiet)
