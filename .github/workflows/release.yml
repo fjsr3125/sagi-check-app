@@ -46,8 +46,6 @@ jobs:
           set -euo pipefail
           test -n "$SAGI_MEMBERS_JSON_B64"
           test -n "$SAGI_SHEETS_BRIDGE_JSON_B64"
-          test -n "$SAGI_OPERATOR_INSTAGRAM_PACKAGE_URL"
-          test -n "$SAGI_OPERATOR_CAPTURE_TOOLS_URL"
           effective_base_url="${BASE_URL:-https://github.com/${GITHUB_REPOSITORY}/releases/latest/download}"
           export EFFECTIVE_BASE_URL="$effective_base_url"
           echo "EFFECTIVE_BASE_URL=$effective_base_url" >> "$GITHUB_ENV"
@@ -60,9 +58,26 @@ jobs:
           Path("config/members.json").write_bytes(base64.b64decode(os.environ["SAGI_MEMBERS_JSON_B64"]))
           Path("config/sagi_sheets_bridge.json").write_bytes(base64.b64decode(os.environ["SAGI_SHEETS_BRIDGE_JSON_B64"]))
           PY
-          curl -fL "$SAGI_OPERATOR_INSTAGRAM_PACKAGE_URL" -o apks/Instagram.xapk
-          curl -fL "$SAGI_OPERATOR_CAPTURE_TOOLS_URL" -o /tmp/sagi-capture-tools.tar.gz
-          tar -xzf /tmp/sagi-capture-tools.tar.gz -C tools
+          if [[ -n "$SAGI_OPERATOR_INSTAGRAM_PACKAGE_URL" && -n "$SAGI_OPERATOR_CAPTURE_TOOLS_URL" ]]; then
+            curl -fL "$SAGI_OPERATOR_INSTAGRAM_PACKAGE_URL" -o apks/Instagram.xapk
+            curl -fL "$SAGI_OPERATOR_CAPTURE_TOOLS_URL" -o /tmp/sagi-capture-tools.tar.gz
+            tar -xzf /tmp/sagi-capture-tools.tar.gz -C tools
+          else
+            echo "private asset URL secrets are missing; reusing assets from latest release DMG"
+            previous_dmg="/tmp/sagi-operator-previous.dmg"
+            mountpoint="/tmp/sagi-operator-previous"
+            mkdir -p "$mountpoint"
+            previous_dmg_url="$(gh release view --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[] | select(.name | endswith(".dmg")) | .url' | head -1)"
+            test -n "$previous_dmg_url"
+            curl -fL "$previous_dmg_url" -o "$previous_dmg"
+            hdiutil attach "$previous_dmg" -nobrowse -readonly -mountpoint "$mountpoint"
+            trap 'hdiutil detach "$mountpoint" >/dev/null 2>&1 || true' EXIT
+            previous_src="$mountpoint/Unari Sagi Operator.app/Contents/Resources/unari-src"
+            cp "$previous_src"/apks/* apks/
+            cp "$previous_src"/tools/* tools/
+            hdiutil detach "$mountpoint"
+            trap - EXIT
+          fi
           python3 - <<'PY'
           import json
           import os
