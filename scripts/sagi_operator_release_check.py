@@ -468,6 +468,8 @@ ARCHIVE_TEXT_CHECKS = {
         "詐欺チェック: ①取込と件数確認",
         "強session必要本数チェック",
         "NEEDS_SUPPLEMENT",
+        "CSVファイルを指定してください",
+        "このアプリ内のファイルだけ指定できます",
         "latest_results",
         "チェック済み",
         "--dry-run",
@@ -486,6 +488,7 @@ ARCHIVE_TEXT_CHECKS = {
         "② 本番チェックを実行",
         "途中から再開（ログイン追加後）",
         "直近CSV",
+        "CSVファイル（アプリ内、account_id列）",
         "チェック用ログイン追加",
         "詳細設定 / CSVで実行する場合",
         "Google Sheets接続設定",
@@ -1434,6 +1437,47 @@ print("sagi sheet job wiring ok")
     return run([python, "-c", code], timeout=120)
 
 
+def check_sagi_api_validation() -> dict:
+    code = """
+from ops_dashboard import app as dashboard_app
+from ops_dashboard import capture_jobs
+
+with capture_jobs._LOCK:
+    capture_jobs._JOBS.clear()
+
+client = dashboard_app.app.test_client()
+
+
+def post_error(path, payload):
+    res = client.post(path, json=payload)
+    assert res.status_code == 400, (path, payload, res.status_code, res.get_data(as_text=True))
+    data = res.get_json()
+    assert data["ok"] is False, data
+    assert isinstance(data["error"], str) and data["error"], data
+    return data["error"]
+
+
+assert "Google Sheets URL" in post_error("/api/sagi/sheet-check", {"tab_name": "7_3"})
+assert "タブ名を入力" in post_error("/api/sagi/sheet-check", {"sheet_url": "https://docs.google.com/spreadsheets/d/abc/edit"})
+assert "タブ名を入力" in post_error("/api/sagi/extract", {"sheet_url": "https://docs.google.com/spreadsheets/d/abc/edit"})
+assert "シートURL/IDまたはCSVファイル" in post_error("/api/sagi/extract", {})
+assert "このアプリ内のファイル" in post_error("/api/sagi/extract", {"csv_path": "../outside.csv"})
+assert "CSVファイル" in post_error("/api/sagi/check", {})
+assert "続きから再開するには結果CSV" in post_error(
+    "/api/sagi/check",
+    {"input_csv": "ops_dashboard/check_jobs.py", "resume": True},
+)
+assert "Google Sheets URLとタブ名" in post_error(
+    "/api/sagi/writeback",
+    {"result_csv": "ops_dashboard/check_jobs.py"},
+)
+assert "Slack通知先" in post_error("/api/sagi/notify-test", {})
+print("sagi api validation ok")
+"""
+    python = str(ROOT / "venv" / "bin" / "python") if (ROOT / "venv" / "bin" / "python").exists() else sys.executable
+    return run([python, "-c", code], timeout=120)
+
+
 def check_setup_job_wiring() -> dict:
     code = """
 from pathlib import Path
@@ -2078,6 +2122,7 @@ def main() -> int:
         step("dashboard browser smoke", check_dashboard_browser_smoke(), results, quiet=quiet)
         step("update download flow", check_update_download_flow(), results, quiet=quiet)
         step("sagi sheet job wiring", check_sagi_sheet_job_wiring(), results, quiet=quiet)
+        step("sagi API validation", check_sagi_api_validation(), results, quiet=quiet)
         step("setup job wiring", check_setup_job_wiring(), results, quiet=quiet)
         step("related log stitching", check_related_log_stitching(), results, quiet=quiet)
         step("launcher stale server restart", check_launcher_stale_server_restart(), results, quiet=quiet)

@@ -105,12 +105,12 @@ print("チェック用ログイン必要数チェックOK")
 
 def _validate_rel_path(value: str, *, must_exist: bool = True) -> tuple[Path | None, str | None]:
     if not value:
-        return None, "path を指定してください"
+        return None, "CSVファイルを指定してください"
     path = (ROOT / value).resolve() if not value.startswith("/") else Path(value).resolve()
     try:
         path.relative_to(ROOT)
     except ValueError:
-        return None, "repo配下のファイルだけ指定できます"
+        return None, "このアプリ内のファイルだけ指定できます"
     if must_exist and not path.exists():
         return None, f"ファイルがありません: {_rel(path)}"
     return path, None
@@ -175,15 +175,15 @@ def start_extract_input_job(
     elif sheet_url.strip():
         cmd.extend(["--sheet-url", sheet_url.strip()])
         if not tab_name.strip():
-            return None, "tab_name を指定してください"
+            return None, "タブ名を入力してください"
         cmd.extend(["--tab-name", tab_name.strip()])
     elif sheet_id.strip():
         cmd.extend(["--sheet-id", sheet_id.strip()])
         if not tab_name.strip():
-            return None, "tab_name を指定してください"
+            return None, "タブ名を入力してください"
         cmd.extend(["--tab-name", tab_name.strip()])
     else:
-        return None, "シートURL/IDまたはCSV pathを指定してください"
+        return None, "シートURL/IDまたはCSVファイルを指定してください"
     return _new_job(
         "詐欺チェック: 入力取込",
         [{"name": "対象アカウントをCSV化", "cmd": cmd, "timeout": 180}],
