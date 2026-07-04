@@ -1478,6 +1478,63 @@ print("sagi api validation ok")
     return run([python, "-c", code], timeout=120)
 
 
+def check_job_busy_api_conflicts() -> dict:
+    code = """
+from ops_dashboard import app as dashboard_app
+from ops_dashboard import capture_jobs
+
+busy_label = "詐欺チェック: 本番実行"
+with capture_jobs._LOCK:
+    capture_jobs._JOBS.clear()
+    capture_jobs._JOBS["busy-job"] = {
+        "id": "busy-job",
+        "kind": "sagi",
+        "label": busy_label,
+        "status": "running",
+        "log": [],
+    }
+
+client = dashboard_app.app.test_client()
+
+
+def assert_busy(path, payload):
+    res = client.post(path, json=payload)
+    assert res.status_code == 409, (path, payload, res.status_code, res.get_data(as_text=True))
+    data = res.get_json()
+    assert data["ok"] is False, data
+    assert "実行中のジョブがあります" in data["error"], data
+    assert busy_label in data["error"], data
+
+
+try:
+    for path, payload in [
+        ("/api/setup/run", {"action": "venv"}),
+        ("/api/capture/start-infra", {}),
+        ("/api/capture/run-all", {"username": "sample", "confirm_tethering": True}),
+        ("/api/capture/import-latest", {"username": "sample"}),
+        ("/api/capture/verify", {"username": "sample"}),
+        ("/api/sagi/extract", {"sheet_url": "https://docs.google.com/spreadsheets/d/abc/edit", "tab_name": "7_3"}),
+        ("/api/sagi/sheet-check", {"sheet_url": "https://docs.google.com/spreadsheets/d/abc/edit", "tab_name": "7_3"}),
+        ("/api/sagi/inventory", {}),
+        ("/api/sagi/dryrun", {"input_csv": "ops_dashboard/check_jobs.py"}),
+        ("/api/sagi/check", {"input_csv": "ops_dashboard/check_jobs.py"}),
+        (
+            "/api/sagi/writeback",
+            {"result_csv": "ops_dashboard/check_jobs.py", "sheet_id": "abc", "tab_name": "7_3"},
+        ),
+        ("/api/sagi/notify-test", {"requester": "藤巻"}),
+    ]:
+        assert_busy(path, payload)
+finally:
+    with capture_jobs._LOCK:
+        capture_jobs._JOBS.clear()
+
+print("job busy api conflicts ok")
+"""
+    python = str(ROOT / "venv" / "bin" / "python") if (ROOT / "venv" / "bin" / "python").exists() else sys.executable
+    return run([python, "-c", code], timeout=120)
+
+
 def check_setup_job_wiring() -> dict:
     code = """
 from pathlib import Path
@@ -2146,6 +2203,7 @@ def main() -> int:
             step("update download flow", check_update_download_flow(), results, quiet=quiet)
             step("sagi sheet job wiring", check_sagi_sheet_job_wiring(), results, quiet=quiet)
             step("sagi API validation", check_sagi_api_validation(), results, quiet=quiet)
+            step("job busy API conflicts", check_job_busy_api_conflicts(), results, quiet=quiet)
             step("setup job wiring", check_setup_job_wiring(), results, quiet=quiet)
             step("related log stitching", check_related_log_stitching(), results, quiet=quiet)
             step("launcher stale server restart", check_launcher_stale_server_restart(), results, quiet=quiet)

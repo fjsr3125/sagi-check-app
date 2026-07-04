@@ -56,6 +56,8 @@ except ImportError:
 app = Flask(__name__)
 app.json.ensure_ascii = False
 
+BUSY_ERROR_PREFIX = "実行中のジョブがあります"
+
 
 def _runtime_root() -> Path:
     root = os.environ.get("UNARI_ROOT", "").strip()
@@ -74,6 +76,11 @@ def _runtime_version() -> dict:
         return {"error": "version metadata is not an object", "path": str(version_path)}
     data.setdefault("path", str(version_path))
     return data
+
+
+def _job_error_response(error: str):
+    status = 409 if error.startswith(BUSY_ERROR_PREFIX) else 400
+    return jsonify({"ok": False, "error": error}), status
 
 
 @app.route("/")
@@ -136,7 +143,7 @@ def api_capture_status():
 def api_capture_start_infra():
     job, error = start_infra_job()
     if error:
-        return jsonify({"ok": False, "error": error}), 409
+        return _job_error_response(error)
     return jsonify({"ok": True, "job": job})
 
 
@@ -152,7 +159,7 @@ def api_capture_run_all():
         manual_login=bool(data.get("manual_login", True)),
     )
     if error:
-        return jsonify({"ok": False, "error": error}), 400
+        return _job_error_response(error)
     return jsonify({"ok": True, "job": job})
 
 
@@ -161,7 +168,7 @@ def api_capture_import_latest():
     data = request.get_json(silent=True) or {}
     job, error = start_import_latest_job(str(data.get("username", "")))
     if error:
-        return jsonify({"ok": False, "error": error}), 400
+        return _job_error_response(error)
     return jsonify({"ok": True, "job": job})
 
 
@@ -170,7 +177,7 @@ def api_capture_verify():
     data = request.get_json(silent=True) or {}
     job, error = start_verify_job(str(data.get("username", "")))
     if error:
-        return jsonify({"ok": False, "error": error}), 400
+        return _job_error_response(error)
     return jsonify({"ok": True, "job": job})
 
 
@@ -192,7 +199,7 @@ def api_setup_run():
     data = request.get_json(silent=True) or {}
     job, error = start_setup_job(str(data.get("action", "")))
     if error:
-        return jsonify({"ok": False, "error": error}), 400
+        return _job_error_response(error)
     return jsonify({"ok": True, "job": job})
 
 
@@ -211,7 +218,7 @@ def api_sagi_extract():
         csv_path=str(data.get("csv_path", "")),
     )
     if error:
-        return jsonify({"ok": False, "error": error}), 400
+        return _job_error_response(error)
     return jsonify({"ok": True, "job": job})
 
 
@@ -224,7 +231,7 @@ def api_sagi_sheet_check():
         tab_name=str(data.get("tab_name", "")),
     )
     if error:
-        return jsonify({"ok": False, "error": error}), 400
+        return _job_error_response(error)
     return jsonify({"ok": True, "job": job})
 
 
@@ -233,7 +240,7 @@ def api_sagi_inventory():
     data = request.get_json(silent=True) or {}
     job, error = start_inventory_job(str(data.get("input_csv", "")))
     if error:
-        return jsonify({"ok": False, "error": error}), 400
+        return _job_error_response(error)
     return jsonify({"ok": True, "job": job})
 
 
@@ -242,7 +249,7 @@ def api_sagi_dryrun():
     data = request.get_json(silent=True) or {}
     job, error = start_dryrun_job(str(data.get("input_csv", "")))
     if error:
-        return jsonify({"ok": False, "error": error}), 400
+        return _job_error_response(error)
     return jsonify({"ok": True, "job": job})
 
 
@@ -255,7 +262,7 @@ def api_sagi_check():
         resume=bool(data.get("resume")),
     )
     if error:
-        return jsonify({"ok": False, "error": error}), 400
+        return _job_error_response(error)
     return jsonify({"ok": True, "job": job})
 
 
@@ -270,7 +277,7 @@ def api_sagi_writeback():
         dry_run=bool(data.get("dry_run")),
     )
     if error:
-        return jsonify({"ok": False, "error": error}), 400
+        return _job_error_response(error)
     return jsonify({"ok": True, "job": job})
 
 
@@ -279,7 +286,7 @@ def api_sagi_notify_test():
     data = request.get_json(silent=True) or {}
     job, error = start_notify_test_job(str(data.get("requester", "")))
     if error:
-        return jsonify({"ok": False, "error": error}), 400
+        return _job_error_response(error)
     return jsonify({"ok": True, "job": job})
 
 
