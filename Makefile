@@ -1,8 +1,11 @@
-.PHONY: help ci check sagi-operator-install-app sagi-operator-smoke sagi-operator-local-smoke sagi-operator-release-package
+.PHONY: help ci check sagi-operator-install-app sagi-operator-smoke sagi-operator-local-smoke sagi-operator-release-package sagi-operator-published-smoke
 
 PYTHON ?= python3
 VERSION ?=
+BUILD ?=
 BASE_URL ?=
+PUBLISHED_BASE_URL ?= https://github.com/fjsr3125/sagi-check-app/releases/latest/download
+PUBLISHED_LATEST_URL ?= $(PUBLISHED_BASE_URL)/latest.json
 
 help:
 	@printf '%s\n' 'sagi-check-app commands'
@@ -12,9 +15,10 @@ help:
 	@printf '%s\n' '  make sagi-operator-smoke             member-ready配布前チェック'
 	@printf '%s\n' '  make sagi-operator-local-smoke       秘密設定なしのローカル広域チェック'
 	@printf '%s\n' '  make sagi-operator-release-package   DMG/ZIP/latest.jsonを生成'
+	@printf '%s\n' '  make sagi-operator-published-smoke   公開済みlatest.json/DMG URLを確認'
 
 ci: check
-	$(PYTHON) -m py_compile scripts/install_sagi_operator_app.py scripts/sagi_operator_release_check.py scripts/package_sagi_operator_release.py ops_dashboard/update_check.py
+	$(PYTHON) -m py_compile scripts/install_sagi_operator_app.py scripts/sagi_operator_release_check.py scripts/package_sagi_operator_release.py scripts/verify_published_release.py ops_dashboard/update_check.py
 
 check:
 	$(PYTHON) -m compileall -q scripts ops_dashboard
@@ -30,3 +34,6 @@ sagi-operator-local-smoke:
 
 sagi-operator-release-package:
 	SAGI_OPERATOR_REQUIRE_INSTAGRAM_PACKAGE=1 SAGI_OPERATOR_REQUIRE_MEMBERS_CONFIG=1 SAGI_OPERATOR_REQUIRE_SHEETS_BRIDGE_CONFIG=1 SAGI_OPERATOR_REQUIRE_CAPTURE_TOOLS=1 $(PYTHON) scripts/package_sagi_operator_release.py $(if $(VERSION),--version "$(VERSION)",) $(if $(BASE_URL),--base-url "$(BASE_URL)",)
+
+sagi-operator-published-smoke:
+	$(PYTHON) scripts/verify_published_release.py --latest-url "$(PUBLISHED_LATEST_URL)" --base-url "$(PUBLISHED_BASE_URL)" --check-assets $(if $(VERSION),--version "$(VERSION)",) $(if $(BUILD),--build "$(BUILD)",)

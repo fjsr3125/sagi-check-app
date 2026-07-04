@@ -1094,6 +1094,45 @@ def check_app_build_lock() -> dict:
     return {"ok": not missing, "missing": missing}
 
 
+def check_published_release_verifier_wiring() -> dict:
+    files = {
+        ".github/workflows/release.yml": [
+            "Verify published GitHub Release",
+            "scripts/verify_published_release.py",
+            "releases/latest/download/latest.json",
+            "--version \"$VERSION\"",
+            "--build \"$build\"",
+            "--check-assets",
+        ],
+        "Makefile": [
+            "sagi-operator-published-smoke",
+            "scripts/verify_published_release.py",
+            "PUBLISHED_LATEST_URL",
+        ],
+        "README.md": [
+            "sagi-operator-published-smoke",
+            "公開URLの `latest.json` を読み直し",
+        ],
+        "scripts/verify_published_release.py": [
+            "def verify_manifest",
+            "download_url must match assets.dmg.url",
+            "--check-assets",
+            "--retries",
+        ],
+    }
+    missing: dict[str, list[str]] = {}
+    for rel_path, required in files.items():
+        path = ROOT / rel_path
+        if not path.exists():
+            missing[rel_path] = ["file not found"]
+            continue
+        text = path.read_text(encoding="utf-8")
+        absent = [item for item in required if item not in text]
+        if absent:
+            missing[rel_path] = absent
+    return {"ok": not missing, "missing": missing}
+
+
 def check_capture_diagnostics() -> dict:
     code = """
 from pathlib import Path
@@ -1485,6 +1524,7 @@ def main() -> int:
         step("related log stitching", check_related_log_stitching(), results, quiet=quiet)
         step("launcher stale server restart", check_launcher_stale_server_restart(), results, quiet=quiet)
         step("app build lock", check_app_build_lock(), results, quiet=quiet)
+        step("published release verifier wiring", check_published_release_verifier_wiring(), results, quiet=quiet)
         step("capture diagnostics", check_capture_diagnostics(), results, quiet=quiet)
         step("accounts config bootstrap", check_accounts_config_bootstrap(), results, quiet=quiet)
         step("build Unari Sagi Operator.app", run(["make", "sagi-operator-install-app"], timeout=300), results, quiet=quiet)
