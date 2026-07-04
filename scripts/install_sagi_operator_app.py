@@ -565,6 +565,56 @@ stop_existing_operator_server() {
   done
 }
 
+runtime_matches_current_bundle() {
+  "$PY" - "$PORT" "$APP_ROOT" <<'PY'
+import json
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+port = sys.argv[1]
+app_root = Path(sys.argv[2]).expanduser().resolve()
+expected_path = app_root / "config" / "sagi_operator_version.json"
+try:
+    expected = json.loads(expected_path.read_text(encoding="utf-8"))
+except Exception as exc:
+    print(f"runtime check failed: cannot read expected metadata: {expected_path}: {exc}")
+    sys.exit(2)
+
+try:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/runtime/status", timeout=3) as res:
+        current = json.loads(res.read().decode("utf-8"))
+except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+    print(f"runtime check failed: running server does not expose current runtime metadata: {exc}")
+    sys.exit(3)
+
+current_root_raw = str(current.get("root") or "")
+if not current_root_raw:
+    print("runtime check failed: running server did not return root")
+    sys.exit(4)
+current_root = str(Path(current_root_raw).expanduser().resolve())
+if current_root != str(app_root):
+    print(f"runtime check failed: root mismatch current={current_root} expected={app_root}")
+    sys.exit(4)
+
+for key in ("version", "build"):
+    expected_value = str(expected.get(key, ""))
+    current_value = str(current.get(key, ""))
+    if expected_value and current_value != expected_value:
+        print(f"runtime check failed: {key} mismatch current={current_value} expected={expected_value}")
+        sys.exit(5)
+
+print(f"runtime check ok: version={current.get('version')} build={current.get('build')} pid={current.get('pid')} user={current.get('user')}")
+PY
+}
+
+fail_stale_operator_server() {
+  echo "== port owner =="
+  lsof -nP -iTCP:"$PORT" -sTCP:LISTEN || true
+  fail "古いUnari Sagi Operatorが起動中です。Macを再起動してから、ApplicationsのUnari Sagi Operatorを開き直してください。"
+}
+
 SERVER_PID=""
 SERVER_STARTED=0
 LOG="$LOG_DIR/app_$(date +%Y%m%d_%H%M%S).log"
@@ -581,12 +631,15 @@ fi
 
 for i in {1..90}; do
   if curl -fsS "http://localhost:$PORT/" >/dev/null 2>&1; then
-    if [[ "${UNARI_OPERATOR_NO_UI:-0}" == "1" ]]; then
-      echo "ready: http://localhost:$PORT/?operator=1"
-    else
-      open "http://localhost:$PORT/?operator=1&t=$(date +%s)"
+    if runtime_matches_current_bundle; then
+      if [[ "${UNARI_OPERATOR_NO_UI:-0}" == "1" ]]; then
+        echo "ready: http://localhost:$PORT/?operator=1"
+      else
+        open "http://localhost:$PORT/?operator=1&t=$(date +%s)"
+      fi
+      exit 0
     fi
-    exit 0
+    fail_stale_operator_server
   fi
   if [[ "$SERVER_STARTED" == "1" ]] && ! kill -0 "$SERVER_PID" >/dev/null 2>&1; then
     echo "server process stopped before becoming ready"

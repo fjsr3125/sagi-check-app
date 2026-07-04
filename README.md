@@ -15,8 +15,13 @@ Unari Sagi Operator / 詐欺チェック用Macアプリの配布専用repo。
 
 - repo: https://github.com/fjsr3125/sagi-check-app
 - 最新Release: https://github.com/fjsr3125/sagi-check-app/releases/latest
-- 最新DMG: https://github.com/fjsr3125/sagi-check-app/releases/latest/download/UnariSagiOperator-2026.07.03.1.dmg
-- 更新確認: https://github.com/fjsr3125/sagi-check-app/releases/latest/download/latest.json
+- 最新情報: https://github.com/fjsr3125/sagi-check-app/releases/latest/download/latest.json
+
+DMGのファイル名にはバージョン番号が入るため、READMEには固定のDMG URLを書かない。
+メンバーへ案内する時は「最新Release」からDMGを取得するか、`latest.json` の `download_url` を見る。
+
+公開配布の正はGitHub Releaseと `latest.json`。
+ローカルの `dist/` は作業用の生成物で、GitHub Actionsで新しいReleaseを作っても自動では更新されない。
 
 ## ローカル確認
 
@@ -29,7 +34,7 @@ make ci
 ローカルで必要ファイルを用意してから実行する。
 
 ```bash
-make sagi-operator-release-package BASE_URL=https://example.com/unari-sagi-operator VERSION=2026.07.03.1
+make sagi-operator-release-package BASE_URL=https://example.com/unari-sagi-operator VERSION=YYYY.MM.DD.N
 ```
 
 生成物:
@@ -46,11 +51,15 @@ make sagi-operator-release-package BASE_URL=https://example.com/unari-sagi-opera
 
 メンバー配布版を作る時はGitHubのActions画面から `Build member release` を手動実行する。
 
-- `version`: `2026.07.03.1` のように指定
+- `version`: `2026.07.04.4` のように指定
 - `base_url`: 空でも可。空の場合は `https://github.com/<owner>/<repo>/releases/latest/download` を使う
 - `release_notes`: 更新内容を短く書く
 
 workflowはDMG/ZIP/latest.jsonをGitHub Releaseへアップロードする。アプリ内の更新確認は `latest.json` を見て「最新版あり/なし」を表示する。
+workflow完了後はGitHub Actions Summaryに、今回公開したバージョン、DMG/ZIP URL、SHA256、`latest.json` の中身が出る。
+
+通常pushとメンバー配布は別。
+push後のCI成功は「コード確認済み」で、`Build member release` 成功後が「メンバー配布済み」。
 
 ## GitHub Actions secrets
 

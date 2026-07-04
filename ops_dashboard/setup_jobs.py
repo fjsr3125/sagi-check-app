@@ -248,7 +248,7 @@ def start_setup_job(action: str) -> tuple[dict[str, Any] | None, str | None]:
     if action == "android-tools":
         return _new_job(
             "初回セットアップ: Android cmdline tools",
-            [{"name": "Android cmdline toolsを導入", "cmd": [PYTHON, "-u", "scripts/install_android_cmdline_tools.py"], "timeout": 1800}],
+            [{"name": "Android cmdline toolsを導入", "cmd": [PYTHON, "-u", "scripts/install_android_cmdline_tools.py"], "timeout": 3600}],
             kind="setup",
         ), None
     if action == "avd":
@@ -302,7 +302,7 @@ def start_setup_job(action: str) -> tuple[dict[str, Any] | None, str | None]:
             "初回セットアップ: まとめて実行",
             [
                 {"name": "必要ライブラリをインストール", "cmd": [py, "-m", "pip", "install", "-r", "requirements.txt"], "timeout": 1800},
-                {"name": "Android cmdline toolsを導入", "cmd": [py, "-u", "scripts/install_android_cmdline_tools.py"], "timeout": 1800},
+                {"name": "Android cmdline toolsを導入", "cmd": [py, "-u", "scripts/install_android_cmdline_tools.py"], "timeout": 3600},
                 {"name": "rootable AVDを作成", "cmd": ["bash", "scripts/setup_ig_capture_avd.sh", "setup"], "timeout": 2400},
                 {"name": "AVD/mitmdumpを起動しCAを生成", "cmd": ["bash", "scripts/ensure_capture_infra.sh", "--prepare-device"], "timeout": 600},
                 {"name": "CA/Frida/proxyをAVDへ設定", "cmd": ["bash", "scripts/setup_ig_capture_device.sh", "all"], "timeout": 900},

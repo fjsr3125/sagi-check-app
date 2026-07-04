@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -33,6 +34,56 @@ def run(cmd: list[str], *, input_text: str | None = None, timeout: int = 1800, e
     proc = subprocess.run(cmd, input=input_text, text=True, timeout=timeout, env=env)
     if proc.returncode != 0:
         raise SystemExit(proc.returncode)
+
+
+def try_run(cmd: list[str], *, input_text: str | None = None, timeout: int = 1800, env: dict[str, str] | None = None) -> int:
+    print("$", " ".join(cmd))
+    try:
+        proc = subprocess.run(cmd, input=input_text, text=True, timeout=timeout, env=env)
+    except subprocess.TimeoutExpired:
+        print(f"command timed out after {timeout}s", file=sys.stderr)
+        return 1
+    return proc.returncode
+
+
+def _package_dir(package: str) -> Path:
+    return ANDROID_HOME.joinpath(*package.split(";"))
+
+
+def missing_packages() -> list[str]:
+    return [p for p in PACKAGES if not _package_dir(p).is_dir()]
+
+
+def clear_download_cache() -> None:
+    # sdkmanager keeps partially downloaded archives here; a corrupted one causes
+    # "Error reading Zip content from a SeekableByteChannel" on every retry.
+    temp_dir = ANDROID_HOME / ".temp"
+    if temp_dir.exists():
+        print(f"clearing sdkmanager download cache: {temp_dir}")
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def install_packages(sdkmanager: Path, license_input: str, env: dict[str, str], *, attempts: int = 3) -> None:
+    for attempt in range(1, attempts + 1):
+        missing = missing_packages()
+        if not missing:
+            print("all SDK packages already installed")
+            return
+        if attempt > 1:
+            clear_download_cache()
+            time.sleep(10)
+        print(f"installing SDK packages (attempt {attempt}/{attempts}): {missing}")
+        code = try_run(
+            [str(sdkmanager), "--sdk_root=" + str(ANDROID_HOME), *missing],
+            input_text=license_input,
+            timeout=1500,
+            env=env,
+        )
+        missing = missing_packages()
+        if code == 0 and not missing:
+            return
+        print(f"sdkmanager attempt {attempt} failed (exit={code}, missing={missing})", file=sys.stderr)
+    raise SystemExit(f"SDK packages could not be installed after {attempts} attempts: {missing_packages()}")
 
 
 def download_zip(dest: Path) -> None:
@@ -163,7 +214,7 @@ def main() -> int:
     sdkmanager = install_cmdline_tools()
     license_input = "y\n" * 200
     run([str(sdkmanager), "--sdk_root=" + str(ANDROID_HOME), "--licenses"], input_text=license_input, timeout=900, env=env)
-    run([str(sdkmanager), "--sdk_root=" + str(ANDROID_HOME), *PACKAGES], input_text=license_input, timeout=2400, env=env)
+    install_packages(sdkmanager, license_input, env)
     print("Android cmdline tools setup complete")
     return 0
 

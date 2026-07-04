@@ -668,11 +668,15 @@ def check_flask_api() -> dict:
     code = """
 from ops_dashboard.app import app
 client = app.test_client()
-paths = ['/api/setup/status', '/api/sagi/status', '/api/capture/status', '/api/update/status']
+paths = ['/api/runtime/status', '/api/setup/status', '/api/sagi/status', '/api/capture/status', '/api/update/status']
 for path in paths:
     res = client.get(path)
     assert res.status_code == 200, (path, res.status_code)
     assert res.is_json, path
+runtime = client.get('/api/runtime/status').get_json()
+assert runtime['ok'] is True
+assert 'root' in runtime
+assert 'version_info' in runtime
 html = client.get('/').get_data(as_text=True)
 assert 'setupJobLog' in html
 assert '初回セットアップ実行ログ' in html
@@ -890,6 +894,11 @@ def check_launcher_stale_server_restart() -> dict:
         "stop_existing_operator_server",
         "stopping existing operator server",
         "UnariSagiOperator/unari/ops_dashboard/app.py",
+        "runtime_matches_current_bundle",
+        "/api/runtime/status",
+        "root mismatch",
+        "古いUnari Sagi Operatorが起動中",
+        "Macを再起動",
         "operator=1&t=$(date +%s)",
     ]
     missing = [item for item in required if item not in text]

@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sagi-check-app 現状整理 2026-07-04</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --paper: #ffffff;
+      --ink: #17202a;
+      --muted: #667085;
+      --line: #d9dee7;
+      --green: #167f52;
+      --green-bg: #e8f6ef;
+      --yellow: #9a6500;
+      --yellow-bg: #fff4db;
+      --red: #b42318;
+      --red-bg: #fee4e2;
+      --blue: #175cd3;
+      --blue-bg: #e9f1ff;
+      --gray-bg: #eef1f5;
+      --shadow: 0 8px 24px rgba(16, 24, 40, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", "YuGothic", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.7;
+    }
+
+    header {
+      background: var(--paper);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .wrap {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    .hero {
+      padding: 34px 0 26px;
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 24px;
+      align-items: end;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+
+    h1 {
+      font-size: 32px;
+      line-height: 1.25;
+      margin-bottom: 10px;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: 22px;
+      margin: 0 0 16px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      font-size: 16px;
+      margin: 0 0 8px;
+      letter-spacing: 0;
+    }
+
+    .lead {
+      color: var(--muted);
+      font-size: 15px;
+      margin: 0;
+    }
+
+    .stamp {
+      justify-self: end;
+      background: var(--gray-bg);
+      border: 1px solid var(--line);
+      padding: 14px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      color: var(--muted);
+      min-width: 280px;
+    }
+
+    main { padding: 24px 0 48px; }
+
+    section {
+      margin: 0 0 22px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 22px;
+      box-shadow: var(--shadow);
+    }
+
+    .grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+    .grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      background: #fff;
+      min-height: 100%;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 10px;
+      white-space: nowrap;
+    }
+
+    .ok { color: var(--green); background: var(--green-bg); }
+    .warn { color: var(--yellow); background: var(--yellow-bg); }
+    .bad { color: var(--red); background: var(--red-bg); }
+    .info { color: var(--blue); background: var(--blue-bg); }
+
+    .big {
+      font-size: 24px;
+      font-weight: 800;
+      line-height: 1.25;
+      margin: 4px 0 6px;
+    }
+
+    .muted { color: var(--muted); }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: #f2f4f7;
+      border: 1px solid #e4e7ec;
+      border-radius: 5px;
+      padding: 1px 5px;
+      font-size: 0.92em;
+    }
+
+    .diagram {
+      overflow-x: auto;
+      padding: 4px 0;
+    }
+
+    svg {
+      max-width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    .table th, .table td {
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+      padding: 10px 8px;
+    }
+
+    .table th {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0;
+      background: #fafbfc;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    .step {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #fff;
+      min-height: 128px;
+    }
+
+    .step:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      right: -18px;
+      top: 44px;
+      color: var(--muted);
+      font-weight: 800;
+      z-index: 2;
+    }
+
+    .num {
+      width: 28px;
+      height: 28px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--blue-bg);
+      color: var(--blue);
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+
+    .note {
+      border-left: 4px solid var(--yellow);
+      background: var(--yellow-bg);
+      padding: 12px 14px;
+      border-radius: 6px;
+      margin: 14px 0 0;
+    }
+
+    .source {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 14px;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+      font-size: 12px;
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 999px;
+      padding: 4px 9px;
+      white-space: nowrap;
+    }
+
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    @media (max-width: 860px) {
+      .hero, .grid.cols-3, .grid.cols-2, .flow {
+        grid-template-columns: 1fr;
+      }
+
+      .stamp { justify-self: stretch; }
+      .step:not(:last-child)::after { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap hero">
+      <div>
+        <h1>sagi-check-app 現状整理</h1>
+        <p class="lead">
+          このリポジトリは、Unari Sagi Operator をメンバーへ配布し、Mac上で初回セットアップ・Instagramセッション取得・詐欺チェック・更新確認を行うための専用プロジェクトです。
+        </p>
+      </div>
+      <div class="stamp">
+        <div><strong>確認日:</strong> 2026-07-04 JST</div>
+        <div><strong>作業場所:</strong> <code>/Users/fujimakisora/Projects/sagi-check-app</code></div>
+        <div><strong>Git branch:</strong> <code>master</code></div>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section>
+      <h2>1. まず結論</h2>
+      <div class="grid cols-3">
+        <div class="card">
+          <div class="status ok">配布中</div>
+          <div class="big">GitHub Release は最新あり</div>
+          <p class="muted">
+            現在の公開最新版は <code>2026.07.04.3</code>。ビルド元は <code>1a78a62</code> です。
+          </p>
+        </div>
+        <div class="card">
+          <div class="status info">補足</div>
+          <div class="big">ローカル dist は参考</div>
+          <p class="muted">
+            GitHub ActionsでReleaseを作っても、手元の <code>dist/</code> は自動更新されません。
+          </p>
+        </div>
+        <div class="card">
+          <div class="status ok">改善済み</div>
+          <div class="big">ローカル導入も強化</div>
+          <p class="muted">
+            Android SDK導入のタイムアウト延長と、失敗時リトライ強化を配布対象に入れます。
+          </p>
+        </div>
+      </div>
+      <div class="note">
+        <strong>今の見方:</strong> 「アプリとして配布中の最新版」はGitHub Releaseと公開 <code>latest.json</code> を正とします。ローカルの <code>dist/</code> は、そのMacで最後に作った作業用生成物です。
+      </div>
+    </section>
+
+    <section>
+      <h2>2. 全体像</h2>
+      <div class="diagram" aria-label="全体アーキテクチャ図">
+        <svg viewBox="0 0 1040 420" role="img">
+          <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L9,3 z" fill="#667085"></path>
+            </marker>
+          </defs>
+          <rect x="20" y="30" width="210" height="130" rx="8" fill="#e9f1ff" stroke="#98b8f8"></rect>
+          <text x="125" y="65" text-anchor="middle" font-size="18" font-weight="700">GitHub Release</text>
+          <text x="125" y="96" text-anchor="middle" font-size="13">DMG / ZIP / latest.json</text>
+          <text x="125" y="122" text-anchor="middle" font-size="13">公開配布URL</text>
+
+          <rect x="300" y="30" width="210" height="130" rx="8" fill="#e8f6ef" stroke="#8fd2b0"></rect>
+          <text x="405" y="65" text-anchor="middle" font-size="18" font-weight="700">Member Mac</text>
+          <text x="405" y="96" text-anchor="middle" font-size="13">Unari Sagi Operator.app</text>
+          <text x="405" y="122" text-anchor="middle" font-size="13">localhost の画面を開く</text>
+
+          <rect x="580" y="30" width="210" height="130" rx="8" fill="#fff4db" stroke="#f2c46d"></rect>
+          <text x="685" y="65" text-anchor="middle" font-size="18" font-weight="700">Android AVD</text>
+          <text x="685" y="96" text-anchor="middle" font-size="13">Instagramを動かす</text>
+          <text x="685" y="122" text-anchor="middle" font-size="13">セッション取得</text>
+
+          <rect x="830" y="30" width="190" height="130" rx="8" fill="#fee4e2" stroke="#f9a29b"></rect>
+          <text x="925" y="65" text-anchor="middle" font-size="18" font-weight="700">外部連携</text>
+          <text x="925" y="96" text-anchor="middle" font-size="13">Google Sheets</text>
+          <text x="925" y="122" text-anchor="middle" font-size="13">Slack通知</text>
+
+          <line x1="230" y1="95" x2="300" y2="95" stroke="#667085" stroke-width="2" marker-end="url(#arrow)"></line>
+          <line x1="510" y1="95" x2="580" y2="95" stroke="#667085" stroke-width="2" marker-end="url(#arrow)"></line>
+          <line x1="790" y1="95" x2="830" y2="95" stroke="#667085" stroke-width="2" marker-end="url(#arrow)"></line>
+
+          <rect x="78" y="235" width="185" height="100" rx="8" fill="#ffffff" stroke="#d9dee7"></rect>
+          <text x="170" y="268" text-anchor="middle" font-size="15" font-weight="700">ops_dashboard</text>
+          <text x="170" y="294" text-anchor="middle" font-size="12">Web画面 / API</text>
+          <text x="170" y="316" text-anchor="middle" font-size="12">ユーザー操作の入口</text>
+
+          <rect x="312" y="235" width="185" height="100" rx="8" fill="#ffffff" stroke="#d9dee7"></rect>
+          <text x="404" y="268" text-anchor="middle" font-size="15" font-weight="700">scripts</text>
+          <text x="404" y="294" text-anchor="middle" font-size="12">セットアップ / 取得</text>
+          <text x="404" y="316" text-anchor="middle" font-size="12">パッケージ生成</text>
+
+          <rect x="546" y="235" width="185" height="100" rx="8" fill="#ffffff" stroke="#d9dee7"></rect>
+          <text x="638" y="268" text-anchor="middle" font-size="15" font-weight="700">config</text>
+          <text x="638" y="294" text-anchor="middle" font-size="12">exampleだけgit管理</text>
+          <text x="638" y="316" text-anchor="middle" font-size="12">本物は同梱時のみ</text>
+
+          <rect x="780" y="235" width="185" height="100" rx="8" fill="#ffffff" stroke="#d9dee7"></rect>
+          <text x="872" y="268" text-anchor="middle" font-size="15" font-weight="700">dist</text>
+          <text x="872" y="294" text-anchor="middle" font-size="12">生成済みアプリ</text>
+          <text x="872" y="316" text-anchor="middle" font-size="12">DMG / ZIP / manifest</text>
+
+          <line x1="170" y1="160" x2="170" y2="235" stroke="#667085" stroke-width="2" marker-end="url(#arrow)"></line>
+          <line x1="405" y1="160" x2="405" y2="235" stroke="#667085" stroke-width="2" marker-end="url(#arrow)"></line>
+          <line x1="685" y1="160" x2="638" y2="235" stroke="#667085" stroke-width="2" marker-end="url(#arrow)"></line>
+          <line x1="925" y1="160" x2="872" y2="235" stroke="#667085" stroke-width="2" marker-end="url(#arrow)"></line>
+        </svg>
+      </div>
+      <div class="legend">
+        <span class="pill">青: 配布</span>
+        <span class="pill">緑: メンバーが使うアプリ</span>
+        <span class="pill">黄: Android / Instagram準備</span>
+        <span class="pill">赤: 外部サービス連携</span>
+      </div>
+    </section>
+
+    <section>
+      <h2>3. メンバーが使う流れ</h2>
+      <div class="flow">
+        <div class="step">
+          <div class="num">1</div>
+          <h3>DMGを受け取る</h3>
+          <p class="muted">GitHub Releaseから最新版DMGをダウンロード。</p>
+        </div>
+        <div class="step">
+          <div class="num">2</div>
+          <h3>アプリを入れる</h3>
+          <p class="muted">DMGを開き、<code>Applications</code> へコピー。</p>
+        </div>
+        <div class="step">
+          <div class="num">3</div>
+          <h3>初回セットアップ</h3>
+          <p class="muted">Android SDK、AVD、Instagram、Sheets連携を画面から進める。</p>
+        </div>
+        <div class="step">
+          <div class="num">4</div>
+          <h3>セッション作成</h3>
+          <p class="muted">Instagramログイン後、強sessionを取り込む。</p>
+        </div>
+        <div class="step">
+          <div class="num">5</div>
+          <h3>詐欺チェック</h3>
+          <p class="muted">CSVやSheetから対象を読み込み、結果を書き戻す。</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>4. いま配布されているもの</h2>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>項目</th>
+            <th>現在値</th>
+            <th>意味</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>公開最新版</td>
+            <td><code>2026.07.04.3</code></td>
+            <td>GitHub Release上でメンバーが取得する最新版。</td>
+          </tr>
+          <tr>
+            <td>ビルド元</td>
+            <td><code>1a78a62</code></td>
+            <td>「チェック用ログインのUIとエラー表示を改善」まで入った版。</td>
+          </tr>
+          <tr>
+            <td>DMG</td>
+            <td><code>UnariSagiOperator-2026.07.04.3.dmg</code></td>
+            <td>メンバーが通常使うインストーラー。約234MB。</td>
+          </tr>
+          <tr>
+            <td>更新確認</td>
+            <td><code>latest.json</code></td>
+            <td>アプリがこれを見て「最新版あり」を判断する。</td>
+          </tr>
+          <tr>
+            <td>ローカル生成物</td>
+            <td>作業用</td>
+            <td>手元の <code>dist/</code> は公開最新版とは別物。配布判断には使わない。</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="note">
+        <strong>注意:</strong> READMEには固定バージョンのDMG URLを書かず、最新Releaseと <code>latest.json</code> を案内します。
+      </div>
+    </section>
+
+    <section>
+      <h2>5. リポジトリの役割分担</h2>
+      <div class="diagram" aria-label="ディレクトリ役割図">
+        <svg viewBox="0 0 1040 360" role="img">
+          <rect x="30" y="40" width="210" height="110" rx="8" fill="#e9f1ff" stroke="#98b8f8"></rect>
+          <text x="135" y="75" text-anchor="middle" font-size="18" font-weight="700">ops_dashboard</text>
+          <text x="135" y="105" text-anchor="middle" font-size="13">画面 / API / ジョブ起動</text>
+          <text x="135" y="130" text-anchor="middle" font-size="13">Flaskでlocalhost表示</text>
+
+          <rect x="295" y="40" width="210" height="110" rx="8" fill="#e8f6ef" stroke="#8fd2b0"></rect>
+          <text x="400" y="75" text-anchor="middle" font-size="18" font-weight="700">scripts</text>
+          <text x="400" y="105" text-anchor="middle" font-size="13">SDK / AVD / capture</text>
+          <text x="400" y="130" text-anchor="middle" font-size="13">release検証 / パッケージ</text>
+
+          <rect x="560" y="40" width="210" height="110" rx="8" fill="#fff4db" stroke="#f2c46d"></rect>
+          <text x="665" y="75" text-anchor="middle" font-size="18" font-weight="700">config</text>
+          <text x="665" y="105" text-anchor="middle" font-size="13">exampleのみ管理</text>
+          <text x="665" y="130" text-anchor="middle" font-size="13">本番設定は秘密扱い</text>
+
+          <rect x="825" y="40" width="180" height="110" rx="8" fill="#fee4e2" stroke="#f9a29b"></rect>
+          <text x="915" y="75" text-anchor="middle" font-size="18" font-weight="700">dist</text>
+          <text x="915" y="105" text-anchor="middle" font-size="13">生成物置き場</text>
+          <text x="915" y="130" text-anchor="middle" font-size="13">git管理対象ではない</text>
+
+          <rect x="140" y="220" width="230" height="95" rx="8" fill="#ffffff" stroke="#d9dee7"></rect>
+          <text x="255" y="252" text-anchor="middle" font-size="16" font-weight="700">Makefile</text>
+          <text x="255" y="278" text-anchor="middle" font-size="13">make ci / release-package</text>
+
+          <rect x="430" y="220" width="230" height="95" rx="8" fill="#ffffff" stroke="#d9dee7"></rect>
+          <text x="545" y="252" text-anchor="middle" font-size="16" font-weight="700">docs</text>
+          <text x="545" y="278" text-anchor="middle" font-size="13">メンバー手順書 / 状況整理</text>
+
+          <rect x="720" y="220" width="230" height="95" rx="8" fill="#ffffff" stroke="#d9dee7"></rect>
+          <text x="835" y="252" text-anchor="middle" font-size="16" font-weight="700">.github/workflows</text>
+          <text x="835" y="278" text-anchor="middle" font-size="13">CI / Build member release</text>
+        </svg>
+      </div>
+    </section>
+
+    <section>
+      <h2>6. いま作業中の変更</h2>
+      <div class="grid cols-2">
+        <div class="card">
+          <div class="status info">変更 1</div>
+          <h3><code>ops_dashboard/setup_jobs.py</code></h3>
+          <p class="muted">
+            Android cmdline tools導入の待ち時間を <code>1800秒</code> から <code>3600秒</code> に延長。メンバーMacでダウンロードが長い時に途中終了しにくくする変更です。
+          </p>
+        </div>
+        <div class="card">
+          <div class="status info">変更 2</div>
+          <h3><code>scripts/install_android_cmdline_tools.py</code></h3>
+          <p class="muted">
+            SDKパッケージ導入にリトライを追加。壊れた一時ダウンロードを消して再試行するため、<code>Error reading Zip content</code> 系の失敗に強くなります。
+          </p>
+        </div>
+      </div>
+      <div class="note">
+        <strong>位置づけ:</strong> これは「次の配布版に入れる候補」です。現在のGitHub公開最新版 <code>2026.07.04.3</code> には、まだこの未コミット差分は含まれていません。
+      </div>
+    </section>
+
+    <section>
+      <h2>7. 配布までの判断図</h2>
+      <div class="diagram" aria-label="配布判断フロー">
+        <svg viewBox="0 0 1040 330" role="img">
+          <defs>
+            <marker id="arrow2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L9,3 z" fill="#667085"></path>
+            </marker>
+          </defs>
+          <rect x="40" y="100" width="180" height="80" rx="8" fill="#ffffff" stroke="#d9dee7"></rect>
+          <text x="130" y="134" text-anchor="middle" font-size="15" font-weight="700">コード変更</text>
+          <text x="130" y="158" text-anchor="middle" font-size="12">今ここ</text>
+
+          <rect x="285" y="100" width="180" height="80" rx="8" fill="#ffffff" stroke="#d9dee7"></rect>
+          <text x="375" y="134" text-anchor="middle" font-size="15" font-weight="700">make ci</text>
+          <text x="375" y="158" text-anchor="middle" font-size="12">最低限の検証</text>
+
+          <rect x="530" y="100" width="180" height="80" rx="8" fill="#ffffff" stroke="#d9dee7"></rect>
+          <text x="620" y="134" text-anchor="middle" font-size="15" font-weight="700">release check</text>
+          <text x="620" y="158" text-anchor="middle" font-size="12">配布前の重い検証</text>
+
+          <rect x="775" y="100" width="220" height="80" rx="8" fill="#e8f6ef" stroke="#8fd2b0"></rect>
+          <text x="885" y="134" text-anchor="middle" font-size="15" font-weight="700">Build member release</text>
+          <text x="885" y="158" text-anchor="middle" font-size="12">DMG / ZIP / latest.json更新</text>
+
+          <line x1="220" y1="140" x2="285" y2="140" stroke="#667085" stroke-width="2" marker-end="url(#arrow2)"></line>
+          <line x1="465" y1="140" x2="530" y2="140" stroke="#667085" stroke-width="2" marker-end="url(#arrow2)"></line>
+          <line x1="710" y1="140" x2="775" y2="140" stroke="#667085" stroke-width="2" marker-end="url(#arrow2)"></line>
+
+          <rect x="285" y="230" width="425" height="58" rx="8" fill="#fff4db" stroke="#f2c46d"></rect>
+          <text x="498" y="255" text-anchor="middle" font-size="14" font-weight="700">READMEは固定URLを使わない</text>
+          <text x="498" y="277" text-anchor="middle" font-size="12">正はGitHub Release / latest.json</text>
+        </svg>
+      </div>
+    </section>
+
+    <section>
+      <h2>8. 注意点と次の一手</h2>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>優先</th>
+            <th>やること</th>
+            <th>理由</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="status ok">済</span></td>
+            <td>READMEから固定バージョンのDMG URLを消す</td>
+            <td>READMEが古いDMGを案内し続ける事故を避ける。</td>
+          </tr>
+          <tr>
+            <td><span class="status ok">済</span></td>
+            <td>起動時に同じ版のlocalhostか確認する</td>
+            <td>古いOperatorや別ユーザーのサーバーを、最新版として開いてしまう事故を避ける。</td>
+          </tr>
+          <tr>
+            <td><span class="status ok">済</span></td>
+            <td>Android SDK導入のタイムアウト延長とリトライ強化を入れる</td>
+            <td>初回セットアップ中の一時失敗や壊れたダウンロードキャッシュで止まりにくくする。</td>
+          </tr>
+          <tr>
+            <td><span class="status info">中</span></td>
+            <td>次に配る場合は <code>make sagi-operator-release-package</code> または GitHub Actionsを実行</td>
+            <td>pushしただけではメンバー用DMGは更新されない。</td>
+          </tr>
+          <tr>
+            <td><span class="status info">中</span></td>
+            <td>配布後はDMGを1回開いて初回画面まで確認</td>
+            <td>メンバー目線では、コードではなく「開ける・進める」が完了条件。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>9. 参照した事実</h2>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>確認先</th>
+            <th>確認内容</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>git status</code></td>
+            <td>Android SDK導入のタイムアウト延長、リトライ強化、配布導線の修正対象を確認。</td>
+          </tr>
+          <tr>
+            <td><code>README.md</code></td>
+            <td>公開配布方針、Release運用、未設定secret、ローカル確認方法。</td>
+          </tr>
+          <tr>
+            <td>GitHub Release API</td>
+            <td>最新Releaseは <code>sagi-operator-2026.07.04.3</code>、公開日時は <code>2026-07-04T12:02:56Z</code>。</td>
+          </tr>
+          <tr>
+            <td>公開 <code>latest.json</code></td>
+            <td>配布中バージョン、SHA256、DMG/ZIP URL。</td>
+          </tr>
+          <tr>
+            <td><code>Makefile</code></td>
+            <td><code>make ci</code>、<code>make sagi-operator-release-package</code> の役割。</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="source">
+        このHTMLは、ローカルリポジトリとGitHub上の公開Releaseを確認して作成した状況整理です。秘密設定ファイルの中身は参照していません。
+      </p>
+    </section>
+  </main>
+</body>
+</html>

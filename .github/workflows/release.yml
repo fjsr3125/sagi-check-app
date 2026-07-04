@@ -4,7 +4,7 @@ name: Build member release
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version, e.g. 2026.07.03.1"
+        description: "Release version, e.g. YYYY.MM.DD.N"
         required: true
       base_url:
         description: "Public base URL where DMG/ZIP/latest.json will be hosted"
@@ -114,3 +114,54 @@ jobs:
             dist/sagi_operator_release/* \
             --title "Sagi Operator $VERSION" \
             --notes "$RELEASE_NOTES"
+
+      - name: Write release summary
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          latest_path = Path("dist/sagi_operator_release/latest.json")
+          data = json.loads(latest_path.read_text(encoding="utf-8"))
+          summary_path = os.environ["GITHUB_STEP_SUMMARY"]
+          assets = data.get("assets", {})
+
+          lines = [
+              "## Unari Sagi Operator member release",
+              "",
+              f"- Version: `{data.get('version', '')}`",
+              f"- Build: `{data.get('build', '')}`",
+              f"- Published at: `{data.get('published_at', '')}`",
+              f"- Latest metadata: `{data.get('download_url', '').rsplit('/', 1)[0]}/latest.json`",
+              "",
+              "| Asset | File | URL | SHA256 | Size |",
+              "| --- | --- | --- | --- | ---: |",
+          ]
+
+          for label in ("dmg", "zip"):
+              item = assets.get(label, {})
+              lines.append(
+                  "| {label} | `{name}` | {url} | `{sha256}` | {size} |".format(
+                      label=label.upper(),
+                      name=item.get("name", ""),
+                      url=item.get("url", ""),
+                      sha256=item.get("sha256", ""),
+                      size=item.get("size_bytes", ""),
+                  )
+              )
+
+          lines.extend(
+              [
+                  "",
+                  "> 公開配布の正はGitHub Releaseとlatest.jsonです。ローカルのdist/は作業用生成物で、自動では手元に戻りません。",
+                  "",
+                  "### latest.json",
+                  "",
+                  "```json",
+                  json.dumps(data, ensure_ascii=False, indent=2),
+                  "```",
+              ]
+          )
+          Path(summary_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import os
 import socket
 from pathlib import Path
@@ -56,9 +57,44 @@ app = Flask(__name__)
 app.json.ensure_ascii = False
 
 
+def _runtime_root() -> Path:
+    root = os.environ.get("UNARI_ROOT", "").strip()
+    if root:
+        return Path(root).expanduser().resolve()
+    return Path(__file__).resolve().parent.parent
+
+
+def _runtime_version() -> dict:
+    version_path = _runtime_root() / "config" / "sagi_operator_version.json"
+    try:
+        data = json.loads(version_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {"error": str(exc), "path": str(version_path)}
+    if not isinstance(data, dict):
+        return {"error": "version metadata is not an object", "path": str(version_path)}
+    data.setdefault("path", str(version_path))
+    return data
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/api/runtime/status")
+def api_runtime_status():
+    version = _runtime_version()
+    return jsonify(
+        {
+            "ok": True,
+            "pid": os.getpid(),
+            "user": os.environ.get("USER") or os.environ.get("LOGNAME") or "",
+            "root": str(_runtime_root()),
+            "version": version.get("version", ""),
+            "build": version.get("build", ""),
+            "version_info": version,
+        }
+    )
 
 
 @app.route("/api/status")
