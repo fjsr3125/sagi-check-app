@@ -1696,17 +1696,25 @@ def check_published_release_verifier_wiring() -> dict:
 
 
 def check_release_docs_guardrails() -> dict:
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    docs = {
+        "README.md": (ROOT / "README.md").read_text(encoding="utf-8"),
+        ".github/workflows/release.yml": (ROOT / ".github" / "workflows" / "release.yml").read_text(
+            encoding="utf-8"
+        ),
+    }
+    project_status = ROOT / "docs" / "project_status_2026-07-04.html"
+    if project_status.exists():
+        docs["docs/project_status_2026-07-04.html"] = project_status.read_text(encoding="utf-8")
 
     forbidden_patterns = {
-        "README fixed version DMG URL": r"releases/latest/download/UnariSagiOperator-\d{4}\.\d{2}\.\d{2}\.\d+\.dmg",
-        "README direct versioned DMG filename": r"https?://[^\s)]+UnariSagiOperator-\d{4}\.\d{2}\.\d{2}\.\d+\.dmg",
+        "fixed version DMG URL": r"releases/latest/download/UnariSagiOperator-\d{4}\.\d{2}\.\d{2}\.\d+\.dmg",
+        "direct versioned DMG filename": r"https?://[^\s)]+UnariSagiOperator-\d{4}\.\d{2}\.\d{2}\.\d+\.dmg",
     }
     forbidden = {
-        name: re.findall(pattern, readme)
+        f"{rel_path}: {name}": re.findall(pattern, text)
+        for rel_path, text in docs.items()
         for name, pattern in forbidden_patterns.items()
-        if re.findall(pattern, readme)
+        if re.findall(pattern, text)
     }
 
     required = {
@@ -1722,9 +1730,15 @@ def check_release_docs_guardrails() -> dict:
             "### latest.json",
         ],
     }
+    if "docs/project_status_2026-07-04.html" in docs:
+        required["docs/project_status_2026-07-04.html"] = [
+            "GitHub ActionsでReleaseを作っても、手元の <code>dist/</code> は自動更新されません",
+            "GitHub Releaseと公開 <code>latest.json</code> を正とします",
+            "READMEには固定バージョンのDMG URLを書かず",
+        ]
     missing: dict[str, list[str]] = {}
     for rel_path, needles in required.items():
-        text = readme if rel_path == "README.md" else workflow
+        text = docs[rel_path]
         absent = [needle for needle in needles if needle not in text]
         if absent:
             missing[rel_path] = absent
@@ -2102,6 +2116,11 @@ def main() -> int:
     parser.add_argument("--docker", action="store_true", help="Docker隔離compile確認も実行する")
     parser.add_argument("--member-first-launch", action="store_true", help="空のHOMEと最小PATHで配布appの初回起動を確認する")
     parser.add_argument(
+        "--release-contracts-only",
+        action="store_true",
+        help="README/Release workflowが公開配布の責務分担からズレていないかだけ確認する",
+    )
+    parser.add_argument(
         "--allow-missing-private-assets",
         action="store_true",
         help="ローカル開発用。members/Sheets bridge等の秘密設定が無い場合だけ該当チェックをskip扱いにする",
@@ -2115,50 +2134,54 @@ def main() -> int:
     try:
         results: list[dict] = []
         quiet = args.json
-        step("make check", run(["make", "check"], timeout=300), results, quiet=quiet)
-        step("shell syntax", check_shell_syntax(), results, quiet=quiet)
-        step("Flask API smoke", check_flask_api(), results, quiet=quiet)
-        step("dashboard JS syntax", check_dashboard_js_syntax(), results, quiet=quiet)
-        step("dashboard browser smoke", check_dashboard_browser_smoke(), results, quiet=quiet)
-        step("update download flow", check_update_download_flow(), results, quiet=quiet)
-        step("sagi sheet job wiring", check_sagi_sheet_job_wiring(), results, quiet=quiet)
-        step("sagi API validation", check_sagi_api_validation(), results, quiet=quiet)
-        step("setup job wiring", check_setup_job_wiring(), results, quiet=quiet)
-        step("related log stitching", check_related_log_stitching(), results, quiet=quiet)
-        step("launcher stale server restart", check_launcher_stale_server_restart(), results, quiet=quiet)
-        step("app build lock", check_app_build_lock(), results, quiet=quiet)
-        step("published release verifier wiring", check_published_release_verifier_wiring(), results, quiet=quiet)
-        step("release docs guardrails", check_release_docs_guardrails(), results, quiet=quiet)
-        step("capture diagnostics", check_capture_diagnostics(), results, quiet=quiet)
-        step("accounts config bootstrap", check_accounts_config_bootstrap(), results, quiet=quiet)
-        step("build Unari Sagi Operator.app", run(["make", "sagi-operator-install-app"], timeout=300), results, quiet=quiet)
-        step("launcher script", check_launcher_script(), results, quiet=quiet)
-        step("member stale server guard", check_member_stale_server_guard(), results, quiet=quiet)
-        step("Sheets bridge bundle", check_sheets_bridge_bundle(), results, quiet=quiet)
-        step("Instagram package bundle", check_instagram_package_bundle(), results, quiet=quiet)
-        step("capture tools bundle", check_capture_tools_bundle(), results, quiet=quiet)
-        step("members config bundle", check_members_config_bundle(), results, quiet=quiet)
-        step("update config bundle", check_update_bundle(), results, quiet=quiet)
-        step("bundle Python cache exclusion", check_bundle_python_caches(), results, quiet=quiet)
-        step("app code signature", check_app_signature(), results, quiet=quiet)
-        step("bundled Python runtime", check_bundled_python(), results, quiet=quiet)
-        step("bundled Python wheelhouse", check_bundled_wheelhouse(), results, quiet=quiet)
-        step("bundle Python cache exclusion after Python check", check_bundle_python_caches(), results, quiet=quiet)
-        step("app code signature after Python check", check_app_signature(), results, quiet=quiet)
-        step("bundle secret exclusion", check_bundle_secrets(), results, quiet=quiet)
-        step("bundle local path exclusion", check_bundle_local_paths(), results, quiet=quiet)
-        if args.member_first_launch:
-            step("member Mac first-launch simulation", check_member_first_launch(), results, quiet=quiet)
-            step("bundle Python cache exclusion after first launch", check_bundle_python_caches(), results, quiet=quiet)
-            step("app code signature after first launch", check_app_signature(), results, quiet=quiet)
-            step("member Mac broken venv repair simulation", check_member_broken_venv_repair(), results, quiet=quiet)
-            step("bundle Python cache exclusion after broken venv repair", check_bundle_python_caches(), results, quiet=quiet)
-            step("app code signature after broken venv repair", check_app_signature(), results, quiet=quiet)
-        if args.docker:
-            step("Docker isolated compile", check_docker_compile(), results, quiet=quiet)
-        step("archive payload verification", check_archive_payloads(), results, quiet=quiet)
-        step("archive content freshness", check_archive_contents(), results, quiet=quiet)
-        step("DMG app code signature", check_dmg_app_signature(), results, quiet=quiet)
+        if args.release_contracts_only:
+            step("published release verifier wiring", check_published_release_verifier_wiring(), results, quiet=quiet)
+            step("release docs guardrails", check_release_docs_guardrails(), results, quiet=quiet)
+        else:
+            step("make check", run(["make", "check"], timeout=300), results, quiet=quiet)
+            step("shell syntax", check_shell_syntax(), results, quiet=quiet)
+            step("Flask API smoke", check_flask_api(), results, quiet=quiet)
+            step("dashboard JS syntax", check_dashboard_js_syntax(), results, quiet=quiet)
+            step("dashboard browser smoke", check_dashboard_browser_smoke(), results, quiet=quiet)
+            step("update download flow", check_update_download_flow(), results, quiet=quiet)
+            step("sagi sheet job wiring", check_sagi_sheet_job_wiring(), results, quiet=quiet)
+            step("sagi API validation", check_sagi_api_validation(), results, quiet=quiet)
+            step("setup job wiring", check_setup_job_wiring(), results, quiet=quiet)
+            step("related log stitching", check_related_log_stitching(), results, quiet=quiet)
+            step("launcher stale server restart", check_launcher_stale_server_restart(), results, quiet=quiet)
+            step("app build lock", check_app_build_lock(), results, quiet=quiet)
+            step("published release verifier wiring", check_published_release_verifier_wiring(), results, quiet=quiet)
+            step("release docs guardrails", check_release_docs_guardrails(), results, quiet=quiet)
+            step("capture diagnostics", check_capture_diagnostics(), results, quiet=quiet)
+            step("accounts config bootstrap", check_accounts_config_bootstrap(), results, quiet=quiet)
+            step("build Unari Sagi Operator.app", run(["make", "sagi-operator-install-app"], timeout=300), results, quiet=quiet)
+            step("launcher script", check_launcher_script(), results, quiet=quiet)
+            step("member stale server guard", check_member_stale_server_guard(), results, quiet=quiet)
+            step("Sheets bridge bundle", check_sheets_bridge_bundle(), results, quiet=quiet)
+            step("Instagram package bundle", check_instagram_package_bundle(), results, quiet=quiet)
+            step("capture tools bundle", check_capture_tools_bundle(), results, quiet=quiet)
+            step("members config bundle", check_members_config_bundle(), results, quiet=quiet)
+            step("update config bundle", check_update_bundle(), results, quiet=quiet)
+            step("bundle Python cache exclusion", check_bundle_python_caches(), results, quiet=quiet)
+            step("app code signature", check_app_signature(), results, quiet=quiet)
+            step("bundled Python runtime", check_bundled_python(), results, quiet=quiet)
+            step("bundled Python wheelhouse", check_bundled_wheelhouse(), results, quiet=quiet)
+            step("bundle Python cache exclusion after Python check", check_bundle_python_caches(), results, quiet=quiet)
+            step("app code signature after Python check", check_app_signature(), results, quiet=quiet)
+            step("bundle secret exclusion", check_bundle_secrets(), results, quiet=quiet)
+            step("bundle local path exclusion", check_bundle_local_paths(), results, quiet=quiet)
+            if args.member_first_launch:
+                step("member Mac first-launch simulation", check_member_first_launch(), results, quiet=quiet)
+                step("bundle Python cache exclusion after first launch", check_bundle_python_caches(), results, quiet=quiet)
+                step("app code signature after first launch", check_app_signature(), results, quiet=quiet)
+                step("member Mac broken venv repair simulation", check_member_broken_venv_repair(), results, quiet=quiet)
+                step("bundle Python cache exclusion after broken venv repair", check_bundle_python_caches(), results, quiet=quiet)
+                step("app code signature after broken venv repair", check_app_signature(), results, quiet=quiet)
+            if args.docker:
+                step("Docker isolated compile", check_docker_compile(), results, quiet=quiet)
+            step("archive payload verification", check_archive_payloads(), results, quiet=quiet)
+            step("archive content freshness", check_archive_contents(), results, quiet=quiet)
+            step("DMG app code signature", check_dmg_app_signature(), results, quiet=quiet)
     finally:
         lock_file.close()
 

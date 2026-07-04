@@ -21,6 +21,7 @@ help:
 
 ci: check
 	$(PYTHON) -m py_compile scripts/install_sagi_operator_app.py scripts/sagi_operator_release_check.py scripts/package_sagi_operator_release.py scripts/verify_published_release.py ops_dashboard/update_check.py
+	$(PYTHON) scripts/sagi_operator_release_check.py --release-contracts-only
 
 check:
 	$(PYTHON) -m compileall -q scripts ops_dashboard
