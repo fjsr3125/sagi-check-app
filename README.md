@@ -61,6 +61,12 @@ make sagi-operator-published-smoke PYTHON=venv/bin/python VERSION=YYYY.MM.DD.N B
 make sagi-operator-published-smoke PYTHON=venv/bin/python VERSION=YYYY.MM.DD.N BUILD=<commit> PUBLISHED_DOWNLOAD_DMG=1
 ```
 
+公開DMGそのものを空のHOMEで起動し、初回画面まで確認する場合:
+
+```bash
+make sagi-operator-published-smoke PYTHON=venv/bin/python VERSION=YYYY.MM.DD.N BUILD=<commit> PUBLISHED_DOWNLOAD_DMG=1 PUBLISHED_FIRST_LAUNCH=1
+```
+
 ## member-ready release
 
 ローカルで必要ファイルを用意してから実行する。

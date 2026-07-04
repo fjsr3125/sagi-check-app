@@ -4,8 +4,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
+import signal
+import socket
 import subprocess
 import sys
 import time
@@ -103,11 +106,134 @@ def _run(cmd: list[str], *, timeout: int) -> dict[str, Any]:
     }
 
 
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _kill_port(port: int) -> None:
+    lsof = shutil.which("lsof")
+    if not lsof:
+        return
+    proc = subprocess.run(
+        [lsof, f"-tiTCP:{port}", "-sTCP:LISTEN"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    for line in proc.stdout.splitlines():
+        try:
+            os.kill(int(line.strip()), signal.SIGTERM)
+        except Exception:
+            pass
+
+
+def _read_json_url(url: str, timeout: int) -> dict[str, Any]:
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=timeout) as res:
+        data = json.loads(res.read(2 * 1024 * 1024).decode("utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{url} did not return a JSON object")
+    return data
+
+
 def _mounted_volume(stdout: str) -> str:
     for line in stdout.splitlines():
         if "/Volumes/" in line:
             return line[line.index("/Volumes/") :].strip()
     return ""
+
+
+def _verify_mounted_app_first_launch(
+    *,
+    app_path: Path,
+    expected_version: str,
+    expected_build: str,
+    timeout: int,
+) -> tuple[list[str], dict[str, Any]]:
+    errors: list[str] = []
+    summary: dict[str, Any] = {}
+    executable = app_path / "Contents" / "MacOS" / "Unari Sagi Operator"
+    if not executable.exists():
+        return [f"app executable not found: {executable}"], summary
+
+    port = _free_port()
+    with tempfile.TemporaryDirectory(prefix="unari_published_first_launch_home_") as td:
+        home = Path(td)
+        env = os.environ.copy()
+        env.update(
+            {
+                "HOME": str(home),
+                "OPS_PORT": str(port),
+                "UNARI_OPERATOR_NO_UI": "1",
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONPYCACHEPREFIX": str(home / "pycache"),
+            }
+        )
+        try:
+            proc = subprocess.run(
+                [str(executable)],
+                cwd=str(app_path),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            summary.update(
+                {
+                    "returncode": proc.returncode,
+                    "stdout_tail": (proc.stdout or "")[-1200:],
+                    "stderr_tail": (proc.stderr or "")[-1200:],
+                    "port": port,
+                }
+            )
+            if proc.returncode != 0:
+                errors.append(f"published DMG app first launch failed: returncode={proc.returncode}")
+                return errors, summary
+
+            runtime = _read_json_url(f"http://127.0.0.1:{port}/api/runtime/status", timeout=10)
+            setup = _read_json_url(f"http://127.0.0.1:{port}/api/setup/status", timeout=10)
+            summary["runtime"] = {
+                "ok": runtime.get("ok"),
+                "version": runtime.get("version"),
+                "build": runtime.get("build"),
+                "root": runtime.get("root"),
+            }
+            summary["setup_status_ok"] = bool(setup)
+
+            if runtime.get("ok") is not True:
+                errors.append("published DMG runtime status is not ok")
+            if expected_version and str(runtime.get("version") or "") != expected_version:
+                errors.append(f"published DMG runtime version must be {expected_version}, got {runtime.get('version')!r}")
+            if expected_build and str(runtime.get("build") or "") != expected_build:
+                errors.append(f"published DMG runtime build must be {expected_build}, got {runtime.get('build')!r}")
+
+            app_root = home / "Library" / "Application Support" / "UnariSagiOperator" / "unari"
+            logs_dir = home / "Library" / "Logs" / "UnariSagiOperator"
+            missing = []
+            for required in [app_root / "venv" / "bin" / "python", logs_dir]:
+                if not required.exists():
+                    missing.append(str(required))
+            launcher_logs = sorted(logs_dir.glob("launcher_*.log")) if logs_dir.exists() else []
+            app_logs = sorted(logs_dir.glob("app_*.log")) if logs_dir.exists() else []
+            if not launcher_logs:
+                missing.append("launcher log")
+            if not app_logs:
+                missing.append("app log")
+            log_text = "\n".join(path.read_text(encoding="utf-8", errors="ignore") for path in launcher_logs)
+            if "installing dependencies from bundled wheelhouse" not in log_text:
+                missing.append("launcher did not install dependencies from bundled wheelhouse")
+            if "Downloading " in log_text:
+                missing.append("launcher downloaded Python dependencies during published DMG first launch")
+            if missing:
+                errors.extend(missing)
+            summary["launcher_log_tail"] = log_text[-1200:]
+            summary["missing"] = missing
+        finally:
+            _kill_port(port)
+    return errors, summary
 
 
 def _verify_downloaded_dmg(
@@ -119,6 +245,8 @@ def _verify_downloaded_dmg(
     expected_build: str,
     timeout: int,
     download_dir: str,
+    first_launch: bool,
+    first_launch_timeout: int,
 ) -> tuple[list[str], dict[str, Any]]:
     errors: list[str] = []
     summary: dict[str, Any] = {"name": name, "url": url}
@@ -167,6 +295,12 @@ def _verify_downloaded_dmg(
                 errors.append("Unari Sagi Operator.app not found in downloaded DMG")
                 return errors, summary
 
+            wheelhouse = app_path / "Contents" / "Resources" / "wheelhouse"
+            wheels = sorted(wheelhouse.glob("*.whl")) if wheelhouse.exists() else []
+            summary["wheelhouse"] = {"exists": wheelhouse.exists(), "wheel_count": len(wheels)}
+            if len(wheels) < 40:
+                errors.append(f"published DMG wheelhouse must contain runtime wheels, got {len(wheels)}")
+
             sign = _run([codesign, "--verify", "--deep", "--strict", "--verbose=4", str(app_path)], timeout=timeout)
             summary["codesign"] = {"ok": sign["ok"], "stderr_tail": sign["stderr"][-500:]}
             if not sign["ok"]:
@@ -184,6 +318,16 @@ def _verify_downloaded_dmg(
                     errors.append(f"bundled version must be {expected_version}, got {bundled_version!r}")
                 if expected_build and bundled_build != expected_build:
                     errors.append(f"bundled build must be {expected_build}, got {bundled_build!r}")
+
+            if first_launch:
+                launch_errors, launch_summary = _verify_mounted_app_first_launch(
+                    app_path=app_path,
+                    expected_version=expected_version,
+                    expected_build=expected_build,
+                    timeout=first_launch_timeout,
+                )
+                summary["first_launch"] = launch_summary
+                errors.extend(launch_errors)
         finally:
             if mount:
                 detach = _run([hdiutil, "detach", mount], timeout=60)
@@ -273,7 +417,7 @@ def verify_manifest(args: argparse.Namespace) -> dict[str, Any]:
         errors.append("download_url must match assets.dmg.url")
 
     downloaded_dmg: dict[str, Any] | None = None
-    if args.download_dmg:
+    if args.download_dmg or args.first_launch:
         dmg = assets.get("dmg") if isinstance(assets, dict) else {}
         if not isinstance(dmg, dict):
             errors.append("assets.dmg is required for --download-dmg")
@@ -288,6 +432,8 @@ def verify_manifest(args: argparse.Namespace) -> dict[str, Any]:
                 expected_build=build,
                 timeout=args.download_timeout,
                 download_dir=args.download_dir,
+                first_launch=args.first_launch,
+                first_launch_timeout=args.first_launch_timeout,
             )
             errors.extend(dmg_errors)
 
@@ -313,9 +459,11 @@ def main() -> int:
     parser.add_argument("--base-url", default="")
     parser.add_argument("--check-assets", action="store_true", help="HEAD/range-check DMG and ZIP URLs")
     parser.add_argument("--download-dmg", action="store_true", help="Download the published DMG and verify SHA256, disk image, signature, and bundled version")
+    parser.add_argument("--first-launch", action="store_true", help="Launch the app from the downloaded DMG with a clean HOME and verify localhost runtime")
     parser.add_argument("--download-dir", default="")
     parser.add_argument("--timeout", type=int, default=15)
     parser.add_argument("--download-timeout", type=int, default=600)
+    parser.add_argument("--first-launch-timeout", type=int, default=900)
     parser.add_argument("--retries", type=int, default=1)
     parser.add_argument("--retry-delay", type=float, default=5.0)
     parser.add_argument("--json", action="store_true")
