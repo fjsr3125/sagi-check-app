@@ -1,0 +1,732 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Unari Sagi Operator 使い方マニュアル</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --paper: #ffffff;
+      --ink: #172331;
+      --muted: #667085;
+      --line: #d8dee6;
+      --soft: #eef2f6;
+      --accent: #176b87;
+      --accent-dark: #104d62;
+      --good: #2d7d46;
+      --warn: #9a5b00;
+      --danger: #b42318;
+      --shadow: 0 16px 44px rgba(23, 35, 49, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", "YuGothic", "Segoe UI", sans-serif;
+      line-height: 1.68;
+    }
+
+    a {
+      color: var(--accent-dark);
+      font-weight: 700;
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+
+    header {
+      background: #102a43;
+      color: #fff;
+      padding: 34px 24px 30px;
+    }
+
+    .hero {
+      width: min(1120px, calc(100vw - 32px));
+      margin: 0 auto;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 12px;
+      padding: 4px 10px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 999px;
+      color: #d9e2ec;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(30px, 4vw, 44px);
+      letter-spacing: 0;
+      line-height: 1.18;
+    }
+
+    .lead {
+      max-width: 780px;
+      margin: 12px 0 0;
+      color: #d9e2ec;
+      font-size: 17px;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 22px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: #fff;
+      color: #102a43;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .button.secondary {
+      background: transparent;
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.38);
+    }
+
+    main {
+      width: min(1120px, calc(100vw - 32px));
+      margin: 24px auto 64px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 300px;
+      gap: 20px;
+      align-items: start;
+    }
+
+    main > div,
+    section,
+    nav {
+      min-width: 0;
+    }
+
+    nav {
+      position: sticky;
+      top: 16px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+      padding: 16px;
+    }
+
+    nav h2 {
+      margin: 0 0 10px;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+
+    nav a {
+      display: block;
+      padding: 8px 10px;
+      border-radius: 7px;
+      color: var(--ink);
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    nav a:hover {
+      background: var(--soft);
+    }
+
+    section {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    h2 {
+      margin: 0 0 16px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid var(--line);
+      font-size: 26px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 24px 0 10px;
+      font-size: 19px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 8px 0;
+    }
+
+    ul,
+    ol {
+      margin: 10px 0 0;
+      padding-left: 24px;
+    }
+
+    li {
+      margin: 7px 0;
+    }
+
+    code {
+      padding: 2px 6px;
+      border: 1px solid #d2dce6;
+      border-radius: 5px;
+      background: #eef3f7;
+      color: #13283a;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+      overflow-wrap: anywhere;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .flow-card,
+    .notice,
+    .term,
+    .trouble-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .flow-card {
+      padding: 14px;
+    }
+
+    .step-no {
+      display: inline-grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      margin-bottom: 8px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 800;
+    }
+
+    .flow-card strong {
+      display: block;
+      font-size: 16px;
+      line-height: 1.35;
+    }
+
+    .flow-card span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .notice {
+      border-left: 5px solid var(--accent);
+      padding: 14px 16px;
+      background: #fbfdff;
+      margin: 14px 0;
+    }
+
+    .notice.good {
+      border-left-color: var(--good);
+      background: #f3fbf5;
+    }
+
+    .notice.warn {
+      border-left-color: var(--warn);
+      background: #fffaf2;
+    }
+
+    .notice.danger {
+      border-left-color: var(--danger);
+      background: #fff5f5;
+    }
+
+    .button-name {
+      display: inline-block;
+      margin: 2px 2px;
+      padding: 5px 10px;
+      border: 1px solid #b8c6d4;
+      border-radius: 7px;
+      background: #f7fafc;
+      color: #102a43;
+      font-weight: 800;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+
+    .checklist {
+      list-style: none;
+      padding: 0;
+      display: grid;
+      gap: 8px;
+    }
+
+    .checklist li {
+      display: flex;
+      gap: 8px;
+      margin: 0;
+      align-items: start;
+    }
+
+    .checklist li::before {
+      content: "";
+      width: 18px;
+      height: 18px;
+      margin-top: 4px;
+      border: 2px solid #9fb0c0;
+      border-radius: 4px;
+      background: #fff;
+      flex: 0 0 18px;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .trouble-grid,
+    .terms {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .trouble-card,
+    .term {
+      padding: 14px;
+    }
+
+    .trouble-card strong,
+    .term strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--accent-dark);
+      font-size: 16px;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      margin-top: 12px;
+      max-width: 100%;
+      min-width: 0;
+    }
+
+    table {
+      width: 100%;
+      min-width: 680px;
+      border-collapse: collapse;
+      background: #fff;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid var(--line);
+      padding: 11px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #eef2f6;
+      color: #26384b;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    footer {
+      width: min(1120px, calc(100vw - 32px));
+      margin: -36px auto 48px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    @media (max-width: 920px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+
+      nav {
+        position: static;
+      }
+
+      .flow,
+      .two-col,
+      .trouble-grid,
+      .terms {
+        grid-template-columns: 1fr;
+      }
+
+      .button-name {
+        white-space: normal;
+      }
+    }
+
+    @media print {
+      body {
+        background: #fff;
+      }
+
+      header {
+        background: #fff;
+        color: #000;
+        padding: 18px 0;
+      }
+
+      .hero,
+      main,
+      footer {
+        width: 100%;
+      }
+
+      nav,
+      .hero-actions {
+        display: none;
+      }
+
+      main {
+        display: block;
+        margin: 0;
+      }
+
+      section {
+        box-shadow: none;
+        break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="hero">
+      <p class="eyebrow">メンバー向け / 見ながら進める版</p>
+      <h1>Unari Sagi Operator 使い方マニュアル</h1>
+      <p class="lead">このページは、アプリの導入、チェック用ログイン作成、詐欺チェック、シート反映までをメンバーが自分のMacで進めるための手順書です。</p>
+      <div class="hero-actions">
+        <a class="button" href="https://github.com/fjsr3125/sagi-check-app/releases/latest">最新版DMGを開く</a>
+        <a class="button secondary" href="#start">手順を見る</a>
+        <a class="button secondary" href="#trouble">困った時</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div>
+      <section id="overview">
+        <h2>最初に知ること</h2>
+        <p>このアプリは、Instagramアカウントに「詐欺表示」が出ているかをまとめて確認し、Google SheetsのD列へ結果を書き戻すためのものです。</p>
+        <div class="notice good">
+          <strong>メンバーがやること</strong>
+          <p>アプリを入れる、初回セットアップを緑にする、チェック用ログインを作る、件数確認してから本番チェックを押す、最後にD列反映を確認する。</p>
+        </div>
+        <div class="notice danger">
+          <strong>入力してはいけない場所</strong>
+          <p>Instagramのパスワードや2FAコードは、Operator画面やログには入力しません。Android画面のInstagramアプリ内だけに手入力します。</p>
+        </div>
+        <div class="flow">
+          <div class="flow-card">
+            <span class="step-no">1</span>
+            <strong>DMGを入れる</strong>
+            <span>GitHub Releaseから最新版をダウンロードします。</span>
+          </div>
+          <div class="flow-card">
+            <span class="step-no">2</span>
+            <strong>初回セットアップ</strong>
+            <span>Python、Android、Instagram導入を緑にします。</span>
+          </div>
+          <div class="flow-card">
+            <span class="step-no">3</span>
+            <strong>ログイン追加</strong>
+            <span>チェック用InstagramをAndroid側でログインします。</span>
+          </div>
+          <div class="flow-card">
+            <span class="step-no">4</span>
+            <strong>チェック実行</strong>
+            <span>件数確認、本番チェック、D列反映の順に進めます。</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="prepare">
+        <h2>用意するもの</h2>
+        <div class="two-col">
+          <div class="notice">
+            <strong>必要なもの</strong>
+            <ul>
+              <li>Apple Silicon Mac</li>
+              <li>安定したWi-Fi、またはiPhoneテザリング</li>
+              <li>チェック用Instagramアカウントのusername / password</li>
+              <li>対象のGoogle Sheetsを開ける状態</li>
+            </ul>
+          </div>
+          <div class="notice">
+            <strong>入れなくてよいもの</strong>
+            <ul>
+              <li>Python</li>
+              <li>Homebrew</li>
+              <li>Java</li>
+              <li>Android Studio</li>
+            </ul>
+          </div>
+        </div>
+        <p class="small">必要なPython、Java、Android SDKはアプリ側のセットアップで用意します。</p>
+      </section>
+
+      <section id="install">
+        <h2>1. アプリを入れる</h2>
+        <ol>
+          <li><a href="https://github.com/fjsr3125/sagi-check-app/releases/latest">最新版Release</a>を開き、<code>Unari Sagi Operator.dmg</code> をダウンロードします。</li>
+          <li>ダウンロードしたDMGをダブルクリックします。</li>
+          <li>中にある <code>Unari Sagi Operator.app</code> を <code>アプリケーション</code> にドラッグします。</li>
+          <li><code>アプリケーション</code> から <code>Unari Sagi Operator.app</code> を右クリックし、<code>開く</code> を押します。</li>
+          <li>macOSの確認画面が出たら、<code>開く</code> または <code>許可</code> を押します。</li>
+        </ol>
+        <div class="notice warn">
+          <strong>古いアプリがある場合</strong>
+          <p>新しいDMGを入れたら、必ず <code>アプリケーション</code> の中のアプリを置き換えてから開き直します。DMGの中から直接起動しないでください。</p>
+        </div>
+      </section>
+
+      <section id="start">
+        <h2>2. 初回セットアップを緑にする</h2>
+        <p>アプリが開くと、ブラウザにOperator画面が出ます。上部の <code>初回セットアップ</code> を開き、赤い項目を上から順番に進めます。</p>
+        <ol>
+          <li>迷ったら <span class="button-name">まとめて導入（①〜⑤）</span> を押します。</li>
+          <li>個別に進める場合は <span class="button-name">① Python環境</span> から順に押します。</li>
+          <li><span class="button-name">② Android SDK</span> は数GBのダウンロードがあるため、しばらく待ちます。</li>
+          <li><span class="button-name">③ Android画面作成</span> を押し、Android画面の準備を待ちます。</li>
+          <li><span class="button-name">④ 通信用設定</span> を押します。</li>
+          <li><span class="button-name">⑤ Instagram導入</span> を押します。</li>
+          <li>シートを使う前に <span class="button-name">⑥ Google Sheets接続設定</span> を確認します。</li>
+          <li>最後に <span class="button-name">状態更新</span> を押し、主要項目が緑になったことを確認します。</li>
+        </ol>
+        <div class="notice">
+          <strong>待つ目安</strong>
+          <p>ログ欄が止まって見えても、ダウンロード中なら数分待ちます。ボタンを連打しません。</p>
+        </div>
+      </section>
+
+      <section id="login">
+        <h2>3. チェック用ログインを作る</h2>
+        <ol>
+          <li><code>チェック用ログイン追加</code> を開きます。</li>
+          <li>Instagram username を入れます。</li>
+          <li><span class="button-name">MacがiPhoneテザリングに接続済み</span> にチェックします。</li>
+          <li><span class="button-name">チェック用ログインを1つ作る（推奨）</span> を押します。</li>
+          <li>Android画面のInstagramログイン画面で、username / password を手入力します。</li>
+          <li>メール確認や2FAが出たら、録画や画面共有を止めてAndroid画面で完了します。</li>
+          <li>フィードが表示されたら、そのまま待ちます。アプリが自動で必要な情報を取り込みます。</li>
+          <li>完了後、必要な場合だけ <span class="button-name">作ったログインを確認</span> を押します。</li>
+        </ol>
+        <div class="notice danger">
+          <strong>重要</strong>
+          <p>Operator画面にはpassword欄がありません。password、2FA、認証コードはAndroid側だけに入力します。</p>
+        </div>
+        <div class="notice good">
+          <strong>成功の目安</strong>
+          <ul>
+            <li>チェック用ログインが1つ増える</li>
+            <li><span class="button-name">作ったログインを確認</span> が成功する</li>
+            <li>画面の「次の一手」が完了系になる</li>
+          </ul>
+        </div>
+      </section>
+
+      <section id="run">
+        <h2>4. 詐欺チェックを実行する</h2>
+        <ol>
+          <li><code>詐欺チェック実行</code> を開きます。</li>
+          <li>Google Sheets URL を貼ります。</li>
+          <li>タブ名を入れます。</li>
+          <li><span class="button-name">① まず件数を確認（本番はまだ走りません）</span> を押します。</li>
+          <li>対象件数と必要なチェック用ログイン数を見ます。</li>
+          <li>問題なければ <span class="button-name">② 本番チェックを実行</span> を押します。</li>
+          <li>確認画面で件数を見てからOKを押します。</li>
+          <li>完了後、結果CSV欄に <code>logs/sagi_operator_result_...csv</code> が入ったことを確認します。</li>
+          <li><span class="button-name">③ 書き戻さずに件数だけ確認（安全）</span> を押します。</li>
+          <li>件数が合っていれば <span class="button-name">④ シートのD列に反映（確定）</span> を押します。</li>
+        </ol>
+        <div class="notice warn">
+          <strong>初回検証だけの時</strong>
+          <p>大量チェックしたくない場合は、①の件数確認で止めます。②本番チェックや④D列反映は押しません。</p>
+        </div>
+      </section>
+
+      <section id="confirm">
+        <h2>5. 完了確認</h2>
+        <ul class="checklist">
+          <li>対象シートのD列に <code>詐欺表示</code> / <code>なし</code> / <code>アカウント不明</code> が入っている</li>
+          <li>対象件数と、書き戻し件数が合っている</li>
+          <li>Slack通知が必要な運用では、通知が届いている</li>
+          <li>途中で止まった場合は、結果CSVを消さずに残している</li>
+        </ul>
+        <div class="notice">
+          <strong>Slack通知だけ失敗した場合</strong>
+          <p>シートD列が更新済みなら、チェック結果自体は残っています。Slack通知のエラーは管理者へ渡してください。</p>
+        </div>
+      </section>
+
+      <section id="trouble">
+        <h2>困った時</h2>
+        <p>まず画面のログ末尾をコピーし、必要ならスクショと一緒に藤巻または管理者へ渡します。password、2FA、cookie、sessionidが見える画面は共有しません。</p>
+        <div class="trouble-grid">
+          <div class="trouble-card">
+            <strong>画面が開かない</strong>
+            <p><code>~/Library/Logs/UnariSagiOperator/</code> の最新ログを渡します。</p>
+          </div>
+          <div class="trouble-card">
+            <strong>Android未接続 / AVD boot timeout</strong>
+            <p>アプリを開き直し、<code>Android準備だけやり直す</code> を押します。繰り返す場合はMac再起動後に再実行します。</p>
+          </div>
+          <div class="trouble-card">
+            <strong>NEEDS_SUPPLEMENT</strong>
+            <p>チェック用ログインが足りません。新しいInstagramアカウントでチェック用ログインを追加します。</p>
+          </div>
+          <div class="trouble-card">
+            <strong>LoginRequired / ChallengeRequired</strong>
+            <p>使っているチェック用ログインが止まっています。別アカウントでチェック用ログインを作り、途中から再開します。</p>
+          </div>
+          <div class="trouble-card">
+            <strong>Google Sheets権限エラー</strong>
+            <p>結果CSVは消さずに残します。シート共有または接続設定を直してから、件数確認から再開します。</p>
+          </div>
+          <div class="trouble-card">
+            <strong>Instagram APKが見つからない</strong>
+            <p>DMGが古いか、管理者側の同梱漏れです。自分でAPKサイトを探さず、最新版DMGを受け取ります。</p>
+          </div>
+        </div>
+
+        <h3>赤くなった時の早見表</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>表示</th>
+                <th>まずやること</th>
+                <th>渡す相手</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>Python環境</code></td>
+                <td>アプリを開き直す。直らなければログを渡す。</td>
+                <td>藤巻 / 管理者</td>
+              </tr>
+              <tr>
+                <td><code>Android画面</code></td>
+                <td><span class="button-name">③ Android画面作成</span> を押す。</td>
+                <td>メンバー本人</td>
+              </tr>
+              <tr>
+                <td><code>通信の証明書</code></td>
+                <td><span class="button-name">④ 通信用設定</span> を押す。</td>
+                <td>メンバー本人</td>
+              </tr>
+              <tr>
+                <td><code>Instagramアプリ</code></td>
+                <td>最新版DMGへ入れ替えて、<span class="button-name">⑤ Instagram導入</span> を押す。</td>
+                <td>管理者</td>
+              </tr>
+              <tr>
+                <td><code>manual_login_required</code> / <code>2FA</code></td>
+                <td>録画や画面共有を止め、Android画面で認証を完了する。</td>
+                <td>メンバー本人</td>
+              </tr>
+              <tr>
+                <td><code>login_input_error</code></td>
+                <td>username/passwordを確認する。連打しない。</td>
+                <td>メンバー本人</td>
+              </tr>
+              <tr>
+                <td><code>credentials.json</code> が無い</td>
+                <td>メンバー側では直さない。Google Sheets接続済みの最新版DMGへ入れ替える。</td>
+                <td>藤巻 / 管理者</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="terms">
+        <h2>用語集</h2>
+        <div class="terms">
+          <div class="term">
+            <strong>チェック用ログイン</strong>
+            <p>詐欺チェックに使うInstagramログイン情報。ログや内部名では <code>session</code> / <code>強session</code> と出ることがあります。</p>
+          </div>
+          <div class="term">
+            <strong>AVD / Android画面</strong>
+            <p>Macの中で動くAndroid端末です。Instagramのログインはこの画面で行います。</p>
+          </div>
+          <div class="term">
+            <strong>capture</strong>
+            <p>Android側のInstagram通信から、チェックに必要な情報だけを取り込む処理です。</p>
+          </div>
+          <div class="term">
+            <strong>no proxy</strong>
+            <p>詐欺チェック本番では外部proxyを使わない、という意味です。初回ログイン作成時のローカル通信設定とは別です。</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <nav aria-label="ページ内メニュー">
+      <h2>この順で進める</h2>
+      <a href="#overview">最初に知ること</a>
+      <a href="#prepare">用意するもの</a>
+      <a href="#install">1. アプリを入れる</a>
+      <a href="#start">2. 初回セットアップ</a>
+      <a href="#login">3. ログイン追加</a>
+      <a href="#run">4. 詐欺チェック</a>
+      <a href="#confirm">5. 完了確認</a>
+      <a href="#trouble">困った時</a>
+      <a href="#terms">用語集</a>
+    </nav>
+  </main>
+
+  <footer>
+    <p>最終更新: 2026-07-05 / 参照元: 録画用カンペとメンバーMac手順書</p>
+  </footer>
+</body>
+</html>
